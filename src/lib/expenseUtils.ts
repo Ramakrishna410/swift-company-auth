@@ -1,11 +1,11 @@
 // Utility functions for expense management
 
-export const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
+export const getStatusBadgeVariant = (status: string): "default" | "secondary" | "destructive" | "outline" | "success" => {
   switch (status.toLowerCase()) {
     case 'pending':
       return 'outline'; // yellow-ish
     case 'approved':
-      return 'default'; // green (uses primary color)
+      return 'success'; // green with white text for better visibility
     case 'rejected':
       return 'destructive'; // red
     default:

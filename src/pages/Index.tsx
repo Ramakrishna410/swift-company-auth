@@ -2,7 +2,7 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { DollarSign, FileText, Users, CheckCircle } from "lucide-react";
+import { DollarSign, FileText, Users, CheckCircle, ClipboardList, UserCog } from "lucide-react";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -32,6 +32,18 @@ const Index = () => {
       icon: Users,
       onClick: () => navigate("/team-expenses"),
     },
+    {
+      title: "Manager Dashboard",
+      description: "Manage team expenses (No Database)",
+      icon: UserCog,
+      onClick: () => navigate("/manager-dashboard"),
+    },
+    {
+      title: "Employee Dashboard",
+      description: "Submit & track expenses (No Database)",
+      icon: ClipboardList,
+      onClick: () => navigate("/employee-dashboard"),
+    },
   ];
 
   return (
@@ -44,7 +56,7 @@ const Index = () => {
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {quickActions.map((action) => (
             <Card key={action.title} className="cursor-pointer hover:shadow-lg transition-shadow" onClick={action.onClick}>
               <CardHeader>
