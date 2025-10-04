@@ -1,27 +1,62 @@
-import { useNavigate } from "react-router-dom";
+import { DashboardLayout } from "@/components/DashboardLayout";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { DollarSign } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { DollarSign, FileText, Users, CheckCircle } from "lucide-react";
 
 const Index = () => {
   const navigate = useNavigate();
 
+  const quickActions = [
+    {
+      title: "Submit Expense",
+      description: "Create a new expense report",
+      icon: DollarSign,
+      onClick: () => navigate("/submit-expense"),
+    },
+    {
+      title: "My Expenses",
+      description: "View your expense history",
+      icon: FileText,
+      onClick: () => navigate("/my-expenses"),
+    },
+    {
+      title: "Pending Approvals",
+      description: "Review expenses awaiting approval",
+      icon: CheckCircle,
+      onClick: () => navigate("/pending-approvals"),
+    },
+    {
+      title: "Team Expenses",
+      description: "View team expense reports",
+      icon: Users,
+      onClick: () => navigate("/team-expenses"),
+    },
+  ];
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/10 via-background to-accent/10">
-      <div className="text-center space-y-6 p-8">
-        <div className="flex justify-center mb-6">
-          <div className="rounded-full bg-primary/10 p-6">
-            <DollarSign className="h-16 w-16 text-primary" />
-          </div>
+    <DashboardLayout>
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
+          <p className="text-muted-foreground">
+            Welcome to your expense management dashboard
+          </p>
         </div>
-        <h1 className="text-5xl font-bold tracking-tight">Expense Manager</h1>
-        <p className="text-xl text-muted-foreground max-w-md mx-auto">
-          Streamline your expense tracking and approval workflow
-        </p>
-        <Button size="lg" onClick={() => navigate("/login")} className="mt-4">
-          Get Started
-        </Button>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {quickActions.map((action) => (
+            <Card key={action.title} className="cursor-pointer hover:shadow-lg transition-shadow" onClick={action.onClick}>
+              <CardHeader>
+                <action.icon className="h-8 w-8 text-primary mb-2" />
+                <CardTitle className="text-lg">{action.title}</CardTitle>
+                <CardDescription>{action.description}</CardDescription>
+              </CardHeader>
+            </Card>
+          ))}
+        </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 };
 
