@@ -67,6 +67,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 size="icon"
                 onClick={signOut}
                 title="Logout"
+                aria-label="Logout"
               >
                 <LogOut className="h-5 w-5" />
               </Button>

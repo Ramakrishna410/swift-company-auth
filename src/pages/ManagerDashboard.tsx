@@ -1,277 +1,270 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Users, DollarSign, CheckCircle, XCircle, Clock } from "lucide-react";
+import { useEffect, useMemo, useState } from 'react';
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/hooks/useAuth';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
-interface Employee {
-  id: string;
-  name: string;
-  employee_id: string;
-  manager_id: string;
-}
+interface Profile { id: string; name: string; employee_id: string | null; }
+interface RoleRow { user_id: string; manager_id: string | null; }
+interface Expense { id: string; owner_id: string; amount: number; currency: string; status: string; date: string; description: string; }
+interface Approval { id: string; expense_id: string; status: string; comments: string | null; }
 
-interface Expense {
-  id: string;
-  employee_id: string;
-  employee_name: string;
-  amount: number;
-  currency: string;
-  description: string;
-  date: string;
-  status: "pending" | "approved" | "rejected";
-  receipt_url?: string;
-}
+export default function ManagerDashboard() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<'all'|'pending'|'approved'|'rejected'>('all');
+  const [approveDialog, setApproveDialog] = useState<{ open: boolean; id: string | null; action: 'approve'|'reject' }>(() => ({ open: false, id: null, action: 'approve' }));
+  const [approvalComment, setApprovalComment] = useState('');
 
-const ManagerDashboard = () => {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
-  const [currentManagerId] = useState("MGR-001"); // Mock logged-in manager
+  useEffect(() => { document.title = 'Manager Dashboard — Expense Manager'; }, []);
 
-  useEffect(() => {
-    // Load data from localStorage or use mock data
-    const storedEmployees = localStorage.getItem("employees");
-    const storedExpenses = localStorage.getItem("expenses");
+  // Profile -> company
+  const { data: profile } = useQuery({
+    queryKey: ['profile-manager', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase.from('profiles').select('id, company_id').eq('id', user.id).single();
+      if (error) throw error;
+      return data as { id: string; company_id: string } | null;
+    },
+    enabled: !!user?.id,
+  });
+  const companyId = profile?.company_id ?? null;
 
-    if (storedEmployees) {
-      setEmployees(JSON.parse(storedEmployees));
-    } else {
-      // Mock employee data
-      const mockEmployees: Employee[] = [
-        { id: "1", name: "John Doe", employee_id: "EMP-001", manager_id: "MGR-001" },
-        { id: "2", name: "Jane Smith", employee_id: "EMP-002", manager_id: "MGR-001" },
-        { id: "3", name: "Bob Johnson", employee_id: "EMP-003", manager_id: "MGR-001" },
-      ];
-      setEmployees(mockEmployees);
-      localStorage.setItem("employees", JSON.stringify(mockEmployees));
-    }
+  // Team members (by manager_id)
+  const { data: teamRoles = [] } = useQuery({
+    queryKey: ['team-roles', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [] as RoleRow[];
+      const { data, error } = await supabase.from('user_roles').select('user_id, manager_id').eq('manager_id', user.id);
+      if (error) throw error;
+      return (data ?? []) as RoleRow[];
+    },
+    enabled: !!user?.id,
+  });
 
-    if (storedExpenses) {
-      setExpenses(JSON.parse(storedExpenses));
-    } else {
-      // Mock expense data
-      const mockExpenses: Expense[] = [
-        {
-          id: "1",
-          employee_id: "EMP-001",
-          employee_name: "John Doe",
-          amount: 150.00,
-          currency: "USD",
-          description: "Client lunch meeting",
-          date: "2025-10-01",
-          status: "pending",
-        },
-        {
-          id: "2",
-          employee_id: "EMP-002",
-          employee_name: "Jane Smith",
-          amount: 85.50,
-          currency: "USD",
-          description: "Office supplies",
-          date: "2025-10-02",
-          status: "approved",
-        },
-        {
-          id: "3",
-          employee_id: "EMP-001",
-          employee_name: "John Doe",
-          amount: 200.00,
-          currency: "USD",
-          description: "Travel expenses",
-          date: "2025-10-03",
-          status: "rejected",
-        },
-      ];
-      setExpenses(mockExpenses);
-      localStorage.setItem("expenses", JSON.stringify(mockExpenses));
-    }
-  }, []);
+  const teamIds = useMemo(() => teamRoles.map(r => r.user_id), [teamRoles]);
 
-  const managerEmployees = employees.filter(emp => emp.manager_id === currentManagerId);
+  const { data: team = [] } = useQuery({
+    queryKey: ['team-profiles', teamIds.join(',')],
+    queryFn: async () => {
+      if (teamIds.length === 0) return [] as Profile[];
+      const { data, error } = await supabase.from('profiles').select('id, name, employee_id').in('id', teamIds);
+      if (error) throw error;
+      return (data ?? []) as Profile[];
+    },
+    enabled: teamIds.length > 0,
+  });
 
-  const getExpenseSummary = () => {
-    const summary = { pending: 0, approved: 0, rejected: 0, total: 0 };
-    expenses.forEach(expense => {
-      const employee = employees.find(emp => emp.employee_id === expense.employee_id);
-      if (employee && employee.manager_id === currentManagerId) {
-        summary[expense.status]++;
-        summary.total += expense.amount;
-      }
+  // Team expenses
+  const { data: teamExpenses = [] } = useQuery({
+    queryKey: ['team-expenses', teamIds.join(','), statusFilter],
+    queryFn: async () => {
+      if (teamIds.length === 0) return [] as Expense[];
+      let q = supabase.from('expenses').select('id, owner_id, amount, currency, status, date, description').in('owner_id', teamIds).order('date', { ascending: false });
+      if (statusFilter !== 'all') q = q.eq('status', statusFilter);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as Expense[];
+    },
+    enabled: teamIds.length > 0,
+  });
+
+  // Pending approvals assigned to current manager
+  const { data: pendingApprovals = [] } = useQuery({
+    queryKey: ['manager-approvals', user?.id, teamIds.join(',')],
+    queryFn: async () => {
+      if (!user?.id || teamIds.length === 0) return [] as Approval[];
+      const { data, error } = await supabase
+        .from('approval_records')
+        .select('id, expense_id, status, comments')
+        .eq('approver_id', user.id)
+        .eq('status', 'pending');
+      if (error) throw error;
+      return (data ?? []) as Approval[];
+    },
+    enabled: !!user?.id && teamIds.length > 0,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async ({ id, status, comments }: { id: string; status: 'approved'|'rejected'; comments?: string }) => {
+      const { error } = await supabase.from('approval_records').update({ status, comments, approved_at: new Date().toISOString() }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['manager-approvals'] }); toast.success('Decision saved'); setApproveDialog({ open: false, id: null, action: 'approve' }); setApprovalComment(''); },
+    onError: () => toast.error('Failed to save decision'),
+  });
+
+  // Summaries
+  const teamExpenseSummary = useMemo(() => {
+    const map: Record<string, number> = {};
+    teamExpenses.forEach(e => { map[e.owner_id] = (map[e.owner_id] || 0) + Number(e.amount || 0); });
+    return map;
+  }, [teamExpenses]);
+
+  const pendingApprovalsByEmployee = useMemo(() => {
+    const expenseMap = new Map<string, string>(); // expense_id -> owner_id
+    teamExpenses.forEach(e => expenseMap.set(e.id, e.owner_id));
+    const counts: Record<string, number> = {};
+    pendingApprovals.forEach(a => {
+      const owner = expenseMap.get(a.expense_id);
+      if (owner) counts[owner] = (counts[owner] || 0) + 1;
     });
-    return summary;
-  };
-
-  const summary = getExpenseSummary();
-
-  const filteredExpenses = selectedEmployee
-    ? expenses.filter(exp => exp.employee_id === selectedEmployee)
-    : expenses.filter(exp => {
-        const employee = employees.find(e => e.employee_id === exp.employee_id);
-        return employee && employee.manager_id === currentManagerId;
-      });
-
-  const getStatusBadgeVariant = (status: string) => {
-    switch (status) {
-      case "pending": return "outline";
-      case "approved": return "default";
-      case "rejected": return "destructive";
-      default: return "secondary";
-    }
-  };
-
-  const handleApprove = (expenseId: string) => {
-    const updatedExpenses = expenses.map(exp =>
-      exp.id === expenseId ? { ...exp, status: "approved" as const } : exp
-    );
-    setExpenses(updatedExpenses);
-    localStorage.setItem("expenses", JSON.stringify(updatedExpenses));
-  };
-
-  const handleReject = (expenseId: string) => {
-    const updatedExpenses = expenses.map(exp =>
-      exp.id === expenseId ? { ...exp, status: "rejected" as const } : exp
-    );
-    setExpenses(updatedExpenses);
-    localStorage.setItem("expenses", JSON.stringify(updatedExpenses));
-  };
+    return counts;
+  }, [pendingApprovals, teamExpenses]);
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <DashboardLayout>
+      <section className="space-y-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Manager Dashboard</h1>
-          <p className="text-muted-foreground">Overview of your team's expenses</p>
+          <h1 className="text-2xl font-semibold">Manager Dashboard</h1>
+          <p className="text-muted-foreground">Overview of your team</p>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-4">
+        {/* Team Overview */}
+        <section>
+          <h2 className="text-xl font-semibold mb-3">Team Overview</h2>
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${summary.total.toFixed(2)}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summary.pending}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Approved</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summary.approved}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Rejected</CardTitle>
-              <XCircle className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summary.rejected}</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Employees List */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Your Team Members
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2 flex-wrap">
-              <Button
-                variant={selectedEmployee === null ? "default" : "outline"}
-                onClick={() => setSelectedEmployee(null)}
-              >
-                All Employees
-              </Button>
-              {managerEmployees.map(emp => (
-                <Button
-                  key={emp.id}
-                  variant={selectedEmployee === emp.employee_id ? "default" : "outline"}
-                  onClick={() => setSelectedEmployee(emp.employee_id)}
-                >
-                  {emp.name}
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Expenses Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {selectedEmployee
-                ? `Expenses for ${managerEmployees.find(e => e.employee_id === selectedEmployee)?.name}`
-                : "All Team Expenses"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {filteredExpenses.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">No expenses found</p>
-            ) : (
+            <CardContent className="pt-6">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Employee</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead>Employee ID</TableHead>
+                    <TableHead>Total Spend</TableHead>
+                    <TableHead>Pending Approvals</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredExpenses.map(expense => (
-                    <TableRow key={expense.id}>
-                      <TableCell className="font-medium">{expense.employee_name}</TableCell>
-                      <TableCell>{new Date(expense.date).toLocaleDateString()}</TableCell>
-                      <TableCell>{expense.description}</TableCell>
-                      <TableCell>{expense.currency} {expense.amount.toFixed(2)}</TableCell>
-                      <TableCell>
-                        <Badge variant={getStatusBadgeVariant(expense.status)} className="capitalize">
-                          {expense.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {expense.status === "pending" && (
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => handleApprove(expense.id)}>
-                              Approve
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleReject(expense.id)}>
-                              Reject
-                            </Button>
-                          </div>
-                        )}
-                      </TableCell>
+                  {team.map(emp => (
+                    <TableRow key={emp.id}>
+                      <TableCell className="font-medium">{emp.name}</TableCell>
+                      <TableCell>{emp.employee_id ?? '—'}</TableCell>
+                      <TableCell>${(teamExpenseSummary[emp.id] || 0).toFixed(2)}</TableCell>
+                      <TableCell>{pendingApprovalsByEmployee[emp.id] || 0}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-};
+            </CardContent>
+          </Card>
+        </section>
 
-export default ManagerDashboard;
+        {/* Expense Tracker */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Expense Tracker</h2>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Filter:</span>
+              <Select value={statusFilter} onValueChange={v => setStatusFilter(v as any)}>
+                <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Employee</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {teamExpenses.map(e => {
+                    const emp = team.find(t => t.id === e.owner_id);
+                    return (
+                      <TableRow key={e.id}>
+                        <TableCell>{new Date(e.date).toLocaleDateString()}</TableCell>
+                        <TableCell>{emp?.name ?? e.owner_id}</TableCell>
+                        <TableCell>{e.description}</TableCell>
+                        <TableCell>
+                          <Badge className="capitalize" variant={e.status === 'approved' ? 'default' : e.status === 'rejected' ? 'destructive' : 'outline'}>{e.status}</Badge>
+                        </TableCell>
+                        <TableCell>{e.currency} {Number(e.amount || 0).toFixed(2)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Approvals Panel */}
+        <section className="space-y-3">
+          <h2 className="text-xl font-semibold">Approvals Panel</h2>
+          <Card>
+            <CardContent className="pt-6">
+              {pendingApprovals.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No pending approvals.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Expense</TableHead>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pendingApprovals.map(a => {
+                      const expense = teamExpenses.find(e => e.id === a.expense_id);
+                      const emp = team.find(t => t.id === expense?.owner_id);
+                      return (
+                        <TableRow key={a.id}>
+                          <TableCell>{expense ? `${expense.description} — ${expense.currency} ${Number(expense.amount||0).toFixed(2)}` : a.expense_id}</TableCell>
+                          <TableCell>{emp?.name ?? expense?.owner_id ?? '—'}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={() => setApproveDialog({ open: true, id: a.id, action: 'approve' })}>Approve</Button>
+                              <Button size="sm" variant="destructive" onClick={() => setApproveDialog({ open: true, id: a.id, action: 'reject' })}>Reject</Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
+        <Dialog open={approveDialog.open} onOpenChange={(o)=> setApproveDialog(s => ({ ...s, open: o }))}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{approveDialog.action === 'approve' ? 'Approve' : 'Reject'} Approval</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <Textarea placeholder="Add an optional comment" value={approvalComment} onChange={(e)=> setApprovalComment(e.target.value)} />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={()=> setApproveDialog({ open: false, id: null, action: 'approve' })}>Cancel</Button>
+                <Button onClick={()=> approveDialog.id && approveMutation.mutate({ id: approveDialog.id, status: approveDialog.action === 'approve' ? 'approved' : 'rejected', comments: approvalComment })}>
+                  Confirm
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </section>
+    </DashboardLayout>
+  );
+}

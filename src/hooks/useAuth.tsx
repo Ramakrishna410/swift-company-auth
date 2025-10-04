@@ -268,13 +268,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw profileError;
     }
     
-    // Attempt to assign role in backend, but don't block if RLS prevents it
+    // Persist role in backend securely (Security Definer RPC)
     try {
-      await supabase
-        .from('user_roles')
-        .insert({ user_id: authData.user.id, role });
+      await supabase.rpc('set_user_role', { _user_id: authData.user.id, _role: role });
     } catch (_) {
-      // Ignore RLS errors, we'll persist the selected role on the client
+      // Ignore errors; role will still persist in user metadata/localStorage
     }
 
     // Persist to localStorage immediately based on selected role
@@ -312,7 +310,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // Clear localStorage
     localStorage.removeItem('user');
-    toast.success('Signed out successfully');
+    toast.success('You’ve been logged out successfully.');
     navigate('/auth');
   };
 
