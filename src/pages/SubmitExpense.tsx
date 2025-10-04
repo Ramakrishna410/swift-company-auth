@@ -152,51 +152,65 @@ export default function SubmitExpense() {
         .from('profiles')
         .select('company_id')
         .eq('id', user?.id)
-        .single();
+        .maybeSingle();
       
-      if (profile) {
+      if (profile?.company_id) {
         // Get the employee's manager from user_roles
         const { data: employeeRole } = await supabase
           .from('user_roles')
           .select('manager_id')
           .eq('user_id', user?.id)
-          .single();
+          .maybeSingle();
         
-        // Get all admins in the company
-        const { data: adminRoles } = await supabase
-          .from('user_roles')
-          .select('user_id')
-          .eq('role', 'admin');
+        // Get all company users with their roles
+        const { data: companyProfiles } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('company_id', profile.company_id);
         
-        if (adminRoles) {
-          // Filter admins to same company
-          const { data: companyAdmins } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('company_id', profile.company_id)
-            .in('id', adminRoles.map(r => r.user_id));
+        if (companyProfiles && companyProfiles.length > 0) {
+          const companyUserIds = companyProfiles.map(p => p.id);
+          
+          // Get all admins in the company
+          const { data: adminRoles } = await supabase
+            .from('user_roles')
+            .select('user_id')
+            .eq('role', 'admin')
+            .in('user_id', companyUserIds);
           
           // Create approval records for admins
-          if (companyAdmins && companyAdmins.length > 0) {
-            for (const admin of companyAdmins) {
-              await supabase.from('approvals').insert({
-                expense_id: expenseData.id,
-                approver_id: admin.id,
-                decision: 'pending',
-                sequence_order: 2,
-              });
+          if (adminRoles && adminRoles.length > 0) {
+            const approvalRecords = adminRoles.map(admin => ({
+              expense_id: expenseData.id,
+              approver_id: admin.user_id,
+              decision: 'pending',
+              sequence_order: 2,
+            }));
+            
+            const { error: adminApprovalError } = await supabase
+              .from('approvals')
+              .insert(approvalRecords);
+            
+            if (adminApprovalError) {
+              console.error('Failed to create admin approvals:', adminApprovalError);
             }
           }
-        }
-        
-        // Create approval record for manager if assigned
-        if (employeeRole?.manager_id) {
-          await supabase.from('approvals').insert({
-            expense_id: expenseData.id,
-            approver_id: employeeRole.manager_id,
-            decision: 'pending',
-            sequence_order: 1,
-          });
+          
+          // Create approval record for manager if assigned
+          if (employeeRole?.manager_id) {
+            const { error: managerApprovalError } = await supabase
+              .from('approvals')
+              .insert({
+                expense_id: expenseData.id,
+                approver_id: employeeRole.manager_id,
+                decision: 'pending',
+                sequence_order: 1,
+              });
+            
+            if (managerApprovalError) {
+              console.error('Failed to create manager approval:', managerApprovalError);
+            }
+          }
         }
       }
     },
