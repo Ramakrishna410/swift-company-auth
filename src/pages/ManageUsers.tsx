@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, AlertCircle, Shield, Users as UsersIcon } from "lucide-react";
+import { Loader2, AlertCircle, Shield, Users as UsersIcon, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,6 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 
 export default function ManageUsers() {
   const { user } = useAuth();
@@ -27,6 +28,13 @@ export default function ManageUsers() {
   const navigate = useNavigate();
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedManagerId, setSelectedManagerId] = useState<string>("");
+  const [showAddUserDialog, setShowAddUserDialog] = useState(false);
+  const [newUserData, setNewUserData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'employee' as 'admin' | 'manager' | 'employee',
+  });
 
   // Check if user is admin
   const { data: isAdmin, isLoading: checkingRole } = useQuery({
@@ -80,7 +88,7 @@ export default function ManageUsers() {
       // Fetch all profiles from the same company
       const { data: profiles, error: profileError } = await supabase
         .from('profiles')
-        .select('id, name, created_at, company_id')
+        .select('id, name, email, employee_id, created_at, company_id')
         .eq('company_id', currentUserProfile.company_id)
         .order('name');
       
@@ -92,13 +100,6 @@ export default function ManageUsers() {
         .select('user_id, role, manager_id');
       
       if (roleError) throw roleError;
-
-      // Get auth users to fetch emails
-      const userIds = profiles.map(p => p.id);
-      let authUsers: any[] = [];
-      
-      // Note: admin.listUsers() requires service role, so we'll skip email for now
-      // or handle it differently based on your RLS policies
       
       // Combine the data
       return profiles.map(profile => {
@@ -110,6 +111,8 @@ export default function ManageUsers() {
           role: userRole?.role || 'employee',
           manager_id: userRole?.manager_id,
           manager_name: manager?.name || null,
+          email: profile.email,
+          employee_id: profile.employee_id,
         };
       });
     },
@@ -170,6 +173,63 @@ export default function ManageUsers() {
     });
   };
 
+  // Add new user mutation
+  const addUserMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentUserProfile?.company_id) throw new Error('No company ID');
+      
+      // Create user account
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newUserData.email,
+        password: newUserData.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+        },
+      });
+      
+      if (authError) throw authError;
+      if (!authData.user) throw new Error('User creation failed');
+      
+      // Generate employee_id
+      const { data: employeeIdData, error: employeeIdError } = await supabase
+        .rpc('generate_employee_id', { p_company_id: currentUserProfile.company_id });
+      
+      if (employeeIdError) throw new Error('Failed to generate employee ID');
+      
+      // Create profile
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: authData.user.id,
+          name: newUserData.name,
+          email: newUserData.email,
+          company_id: currentUserProfile.company_id,
+          employee_id: employeeIdData,
+        });
+      
+      if (profileError) throw profileError;
+      
+      // Assign role
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .insert({
+          user_id: authData.user.id,
+          role: newUserData.role,
+        });
+      
+      if (roleError) throw roleError;
+    },
+    onSuccess: () => {
+      toast.success('User added successfully!');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setShowAddUserDialog(false);
+      setNewUserData({ name: '', email: '', password: '', role: 'employee' });
+    },
+    onError: (error: any) => {
+      toast.error('Failed to add user', { description: error.message });
+    },
+  });
+
   const getRoleColor = (role: string): "default" | "secondary" | "destructive" => {
     switch (role) {
       case 'admin':
@@ -202,12 +262,91 @@ export default function ManageUsers() {
             </h2>
             <p className="text-muted-foreground">Add, edit, and manage user accounts</p>
           </div>
-          {users && users.length > 0 && (
-            <Badge variant="outline" className="text-base px-4 py-2">
-              <UsersIcon className="h-4 w-4 mr-2" />
-              {users.length} users
-            </Badge>
-          )}
+          <div className="flex items-center gap-4">
+            {users && users.length > 0 && (
+              <Badge variant="outline" className="text-base px-4 py-2">
+                <UsersIcon className="h-4 w-4 mr-2" />
+                {users.length} users
+              </Badge>
+            )}
+            <Dialog open={showAddUserDialog} onOpenChange={setShowAddUserDialog}>
+              <DialogTrigger asChild>
+                <Button>
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Add User
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add New User</DialogTitle>
+                  <DialogDescription>Create a new user account for your company</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-user-name">Full Name</Label>
+                    <Input
+                      id="new-user-name"
+                      value={newUserData.name}
+                      onChange={(e) => setNewUserData({ ...newUserData, name: e.target.value })}
+                      placeholder="John Doe"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-user-email">Email</Label>
+                    <Input
+                      id="new-user-email"
+                      type="email"
+                      value={newUserData.email}
+                      onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
+                      placeholder="john@company.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-user-password">Password</Label>
+                    <Input
+                      id="new-user-password"
+                      type="password"
+                      value={newUserData.password}
+                      onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-user-role">Role</Label>
+                    <Select
+                      value={newUserData.role}
+                      onValueChange={(value: 'admin' | 'manager' | 'employee') => 
+                        setNewUserData({ ...newUserData, role: value })
+                      }
+                    >
+                      <SelectTrigger id="new-user-role">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="employee">Employee</SelectItem>
+                        <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button 
+                    onClick={() => addUserMutation.mutate()} 
+                    className="w-full"
+                    disabled={addUserMutation.isPending}
+                  >
+                    {addUserMutation.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Adding user...
+                      </>
+                    ) : (
+                      'Add User'
+                    )}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         <Card>
@@ -249,7 +388,8 @@ export default function ManageUsers() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
-                      <TableHead>User ID</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Employee ID</TableHead>
                       <TableHead>Current Role</TableHead>
                       <TableHead>Manager</TableHead>
                       <TableHead className="text-right">Change Role</TableHead>
@@ -260,8 +400,11 @@ export default function ManageUsers() {
                     {users.map((userItem: any) => (
                       <TableRow key={userItem.id}>
                         <TableCell className="font-medium">{userItem.name}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {userItem.id.slice(0, 8)}...
+                        <TableCell className="text-sm text-muted-foreground">
+                          {userItem.email}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm">
+                          {userItem.employee_id}
                         </TableCell>
                         <TableCell>
                           <Badge variant={getRoleColor(userItem.role)} className="capitalize">

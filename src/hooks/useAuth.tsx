@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string, companyName: string, country: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, companyName: string, country: string, role: 'admin' | 'manager' | 'employee') => Promise<void>;
   signOut: () => Promise<void>;
   loading: boolean;
 }
@@ -60,7 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string, 
     name: string, 
     companyName: string, 
-    country: string
+    country: string,
+    role: 'admin' | 'manager' | 'employee'
   ) => {
     const redirectUrl = `${window.location.origin}/`;
     
@@ -128,25 +129,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       companyId = existingCompanies[0].id;
     }
     
-    // Create profile
+    // Generate employee_id using the database function
+    const { data: employeeIdData, error: employeeIdError } = await supabase
+      .rpc('generate_employee_id', { p_company_id: companyId });
+    
+    if (employeeIdError) {
+      throw new Error('Failed to generate employee ID');
+    }
+    
+    // Create profile with employee_id
     const { error: profileError } = await supabase
       .from('profiles')
       .insert({
         id: authData.user.id,
         name: name,
         company_id: companyId,
+        employee_id: employeeIdData,
+        email: email,
       });
     
     if (profileError) {
       throw profileError;
     }
     
-    // Assign role (admin if first user, employee otherwise)
+    // Assign role - use selected role if first user is admin, otherwise use selected role
+    const finalRole = isFirstUser && role === 'admin' ? 'admin' : role;
     const { error: roleError } = await supabase
       .from('user_roles')
       .insert({
         user_id: authData.user.id,
-        role: isFirstUser ? 'admin' : 'employee',
+        role: finalRole,
       });
     
     if (roleError) {

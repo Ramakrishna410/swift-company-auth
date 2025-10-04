@@ -209,18 +209,24 @@ export type Database = {
         Row: {
           company_id: string | null
           created_at: string | null
+          email: string | null
+          employee_id: string | null
           id: string
           name: string
         }
         Insert: {
           company_id?: string | null
           created_at?: string | null
+          email?: string | null
+          employee_id?: string | null
           id: string
           name: string
         }
         Update: {
           company_id?: string | null
           created_at?: string | null
+          email?: string | null
+          employee_id?: string | null
           id?: string
           name?: string
         }
@@ -263,6 +269,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      generate_employee_id: {
+        Args: { p_company_id: string }
+        Returns: string
+      }
       get_user_company_id: {
         Args: { _user_id: string }
         Returns: string
