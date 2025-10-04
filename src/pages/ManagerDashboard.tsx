@@ -39,29 +39,49 @@ export default function ManagerDashboard() {
   });
   const companyId = profile?.company_id ?? null;
 
-  // Team members (by manager_id)
+  // Team members (by manager_id within same company)
   const { data: teamRoles = [] } = useQuery({
-    queryKey: ['team-roles', user?.id],
+    queryKey: ['team-roles', user?.id, companyId],
     queryFn: async () => {
-      if (!user?.id) return [] as RoleRow[];
-      const { data, error } = await supabase.from('user_roles').select('user_id, manager_id').eq('manager_id', user.id);
+      if (!user?.id || !companyId) return [] as RoleRow[];
+      
+      // Get all employees in the same company
+      const { data: companyProfiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('company_id', companyId);
+      
+      if (profileError) throw profileError;
+      const companyUserIds = companyProfiles?.map(p => p.id) || [];
+      
+      // Get team roles filtered by manager and company
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('user_id, manager_id')
+        .eq('manager_id', user.id)
+        .in('user_id', companyUserIds);
+      
       if (error) throw error;
       return (data ?? []) as RoleRow[];
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!companyId,
   });
 
   const teamIds = useMemo(() => teamRoles.map(r => r.user_id), [teamRoles]);
 
   const { data: team = [] } = useQuery({
-    queryKey: ['team-profiles', teamIds.join(',')],
+    queryKey: ['team-profiles', teamIds.join(','), companyId],
     queryFn: async () => {
-      if (teamIds.length === 0) return [] as Profile[];
-      const { data, error } = await supabase.from('profiles').select('id, name, employee_id').in('id', teamIds);
+      if (teamIds.length === 0 || !companyId) return [] as Profile[];
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, employee_id')
+        .in('id', teamIds)
+        .eq('company_id', companyId);
       if (error) throw error;
       return (data ?? []) as Profile[];
     },
-    enabled: teamIds.length > 0,
+    enabled: teamIds.length > 0 && !!companyId,
   });
 
   // Team expenses
