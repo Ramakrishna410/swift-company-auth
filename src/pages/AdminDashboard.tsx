@@ -96,20 +96,26 @@ export default function AdminDashboard() {
     refetchInterval: 20000, // Poll every 20 seconds
   });
 
-  // Pending approvals for admin
-  const { data: pendingApprovals = [] } = useQuery({
-    queryKey: ['admin-approvals', user?.id, employeeIds.join(',')],
+  // All approvals for viewing (admin can see all approval requests but doesn't approve)
+  const { data: allApprovals = [] } = useQuery({
+    queryKey: ['admin-view-approvals', employeeIds.join(',')],
     queryFn: async () => {
-      if (!user?.id || employeeIds.length === 0) return [];
+      if (employeeIds.length === 0) return [];
+      
+      // Get all expenses in the company
+      const expenseIds = expenses.map(e => e.id);
+      if (expenseIds.length === 0) return [];
+      
       const { data, error } = await supabase
         .from('approvals')
-        .select('id, expense_id, decision, comment')
-        .eq('approver_id', user.id)
-        .eq('decision', 'pending');
+        .select('id, expense_id, approver_id, decision, comment, decided_at, sequence_order')
+        .in('expense_id', expenseIds)
+        .order('decided_at', { ascending: false, nullsFirst: true });
+      
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!user?.id && employeeIds.length > 0,
+    enabled: employeeIds.length > 0 && expenses.length > 0,
     refetchInterval: 15000, // Poll every 15 seconds
   });
 
@@ -158,46 +164,6 @@ export default function AdminDashboard() {
     onError: () => toast.error('Failed to update rule'),
   });
 
-  const approveExpenseMutation = useMutation({
-    mutationFn: async ({ id, status, comments }: { id: string; status: 'approved'|'rejected'; comments?: string }) => {
-      const { data: approval, error: approvalError } = await supabase
-        .from('approvals')
-        .select('expense_id')
-        .eq('id', id)
-        .single();
-      
-      if (approvalError) throw approvalError;
-
-      const { error } = await supabase
-        .from('approvals')
-        .update({ decision: status, comment: comments, decided_at: new Date().toISOString() })
-        .eq('id', id);
-      
-      if (error) throw error;
-
-      const { error: expenseError } = await supabase
-        .from('expenses')
-        .update({ status })
-        .eq('id', approval.expense_id);
-      
-      if (expenseError) throw expenseError;
-
-      const { error: otherApprovalsError } = await supabase
-        .from('approvals')
-        .update({ decision: status === 'approved' ? 'approved' : 'rejected' })
-        .eq('expense_id', approval.expense_id)
-        .eq('decision', 'pending')
-        .neq('id', id);
-      
-      if (otherApprovalsError) console.error('Failed to update other approvals:', otherApprovalsError);
-    },
-    onSuccess: () => { 
-      qc.invalidateQueries({ queryKey: ['admin-approvals'] });
-      qc.invalidateQueries({ queryKey: ['expenses-company'] });
-      toast.success('Decision saved successfully'); 
-    },
-    onError: () => toast.error('Failed to save decision'),
-  });
 
   // Derived
   const roleMap = useMemo(() => Object.fromEntries(roles.map(r => [r.user_id, r.role])), [roles]);
@@ -276,33 +242,40 @@ export default function AdminDashboard() {
           </Card>
         </div>
 
-        {/* Pending Approval Requests */}
-        {pendingApprovals.length > 0 && (
+        {/* All Approval Requests (View Only) */}
+        {allApprovals.filter(a => a.decision === 'pending').length > 0 && (
           <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Pending Approval Requests</h2>
+            <div>
+              <h2 className="text-xl font-semibold">Approval Requests (View Only)</h2>
+              <p className="text-sm text-muted-foreground">Managers approve these requests</p>
+            </div>
             <Card>
               <CardContent className="pt-6">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Expense</TableHead>
                       <TableHead>Employee</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Approver</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pendingApprovals.map((a: any) => {
+                    {allApprovals.filter(a => a.decision === 'pending').map((a: any) => {
                       const expense = expenses.find(e => e.id === a.expense_id);
                       const emp = employees.find(t => t.id === expense?.owner_id);
+                      const approver = employees.find(t => t.id === a.approver_id);
                       return (
                         <TableRow key={a.id}>
-                          <TableCell>{expense ? `${expense.currency} ${Number(expense.amount||0).toFixed(2)}` : a.expense_id}</TableCell>
-                          <TableCell>{emp?.name ?? expense?.owner_id ?? '—'}</TableCell>
+                          <TableCell>{emp?.name ?? '—'}</TableCell>
+                          <TableCell>{expense ? `${expense.currency} ${Number(expense.amount||0).toFixed(2)}` : '—'}</TableCell>
+                          <TableCell>{expense?.date ? new Date(expense.date).toLocaleDateString() : '—'}</TableCell>
+                          <TableCell>{approver?.name ?? '—'}</TableCell>
                           <TableCell>
-                            <div className="flex gap-2">
-                              <Button size="sm" onClick={() => approveExpenseMutation.mutate({ id: a.id, status: 'approved' })}>Approve</Button>
-                              <Button size="sm" variant="destructive" onClick={() => approveExpenseMutation.mutate({ id: a.id, status: 'rejected' })}>Reject</Button>
-                            </div>
+                            <Badge variant="outline" className="bg-yellow-500/10 text-yellow-700 dark:text-yellow-400">
+                              Pending
+                            </Badge>
                           </TableCell>
                         </TableRow>
                       );

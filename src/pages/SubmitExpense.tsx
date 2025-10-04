@@ -127,7 +127,16 @@ export default function SubmitExpense() {
         }
       }
       
-      // Create expense
+      // Get user's role
+      const { data: userRole } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user?.id)
+        .maybeSingle();
+      
+      const isAdmin = userRole?.role === 'admin';
+      
+      // Create expense - Admins get auto-approved, others are pending
       const { data: expenseData, error: expenseError } = await supabase
         .from('expenses')
         .insert({
@@ -139,64 +148,31 @@ export default function SubmitExpense() {
           description: data.description,
           date: data.date.toISOString(),
           owner_id: user?.id,
-          status: 'pending',
+          status: isAdmin ? 'approved' : 'pending',
         })
         .select()
         .single();
 
       if (expenseError) throw expenseError;
       
-      // Create approval records for BOTH Manager AND Admin
-      // Get the user's profile and company
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user?.id)
-        .maybeSingle();
-      
-      if (profile?.company_id) {
-        // Get the employee's manager from user_roles
-        const { data: employeeRole } = await supabase
-          .from('user_roles')
-          .select('manager_id')
-          .eq('user_id', user?.id)
+      // Only create approval records if user is NOT an admin
+      if (!isAdmin) {
+        // Get the user's profile and company
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('company_id')
+          .eq('id', user?.id)
           .maybeSingle();
         
-        // Get all company users with their roles
-        const { data: companyProfiles } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('company_id', profile.company_id);
-        
-        if (companyProfiles && companyProfiles.length > 0) {
-          const companyUserIds = companyProfiles.map(p => p.id);
-          
-          // Get all admins in the company
-          const { data: adminRoles } = await supabase
+        if (profile?.company_id) {
+          // Get the employee's manager from user_roles
+          const { data: employeeRole } = await supabase
             .from('user_roles')
-            .select('user_id')
-            .eq('role', 'admin')
-            .in('user_id', companyUserIds);
+            .select('manager_id')
+            .eq('user_id', user?.id)
+            .maybeSingle();
           
-          // Create approval records for admins
-          if (adminRoles && adminRoles.length > 0) {
-            const approvalRecords = adminRoles.map(admin => ({
-              expense_id: expenseData.id,
-              approver_id: admin.user_id,
-              decision: 'pending',
-              sequence_order: 2,
-            }));
-            
-            const { error: adminApprovalError } = await supabase
-              .from('approvals')
-              .insert(approvalRecords);
-            
-            if (adminApprovalError) {
-              console.error('Failed to create admin approvals:', adminApprovalError);
-            }
-          }
-          
-          // Create approval record for manager if assigned
+          // Only create manager approval record if employee has a manager assigned
           if (employeeRole?.manager_id) {
             const { error: managerApprovalError } = await supabase
               .from('approvals')
@@ -213,9 +189,15 @@ export default function SubmitExpense() {
           }
         }
       }
+      
+      return { isAdmin };
     },
-    onSuccess: () => {
-      toast.success("Expense submitted successfully!");
+    onSuccess: (data) => {
+      if (data?.isAdmin) {
+        toast.success("Expense added successfully! (Auto-approved)");
+      } else {
+        toast.success("Expense submitted successfully! Awaiting manager approval.");
+      }
       form.reset({
         amount: "",
         currency: companyData?.currency || "USD",
