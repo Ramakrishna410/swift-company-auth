@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, companyName: string, country: string) => Promise<void>;
   signOut: () => Promise<void>;
   loading: boolean;
 }
@@ -55,22 +55,102 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     navigate('/');
   };
 
-  const signUp = async (email: string, password: string, name: string) => {
+  const signUp = async (
+    email: string, 
+    password: string, 
+    name: string, 
+    companyName: string, 
+    country: string
+  ) => {
     const redirectUrl = `${window.location.origin}/`;
     
-    const { error } = await supabase.auth.signUp({
+    // First, get the currency for the country
+    let currency = 'USD';
+    try {
+      const response = await fetch(`https://restcountries.com/v3.1/name/${country}?fullText=true`);
+      const data = await response.json();
+      if (data[0]?.currencies) {
+        currency = Object.keys(data[0].currencies)[0];
+      }
+    } catch (error) {
+      console.log('Could not fetch currency, defaulting to USD');
+    }
+    
+    // Sign up the user
+    const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: redirectUrl,
         data: {
           name: name,
+          company_name: companyName,
+          country: country,
         },
       },
     });
     
-    if (error) {
-      throw error;
+    if (authError) {
+      throw authError;
+    }
+    
+    if (!authData.user) {
+      throw new Error('User creation failed');
+    }
+    
+    // Check if this is the first user for this company (by checking if company exists)
+    const { data: existingCompanies } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('name', companyName)
+      .limit(1);
+    
+    const isFirstUser = !existingCompanies || existingCompanies.length === 0;
+    
+    // Create company if it doesn't exist
+    let companyId: string;
+    if (isFirstUser) {
+      const { data: companyData, error: companyError } = await supabase
+        .from('companies')
+        .insert({
+          name: companyName,
+          country: country,
+          currency: currency,
+        })
+        .select()
+        .single();
+      
+      if (companyError || !companyData) {
+        throw companyError || new Error('Company creation failed');
+      }
+      companyId = companyData.id;
+    } else {
+      companyId = existingCompanies[0].id;
+    }
+    
+    // Create profile
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .insert({
+        id: authData.user.id,
+        name: name,
+        company_id: companyId,
+      });
+    
+    if (profileError) {
+      throw profileError;
+    }
+    
+    // Assign role (admin if first user, employee otherwise)
+    const { error: roleError } = await supabase
+      .from('user_roles')
+      .insert({
+        user_id: authData.user.id,
+        role: isFirstUser ? 'admin' : 'employee',
+      });
+    
+    if (roleError) {
+      throw roleError;
     }
     
     toast.success('Account created successfully!');

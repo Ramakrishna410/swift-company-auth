@@ -16,6 +16,8 @@ const loginSchema = z.object({
 
 const signupSchema = loginSchema.extend({
   name: z.string().min(2, 'Name must be at least 2 characters'),
+  companyName: z.string().min(2, 'Company name must be at least 2 characters'),
+  country: z.string().min(2, 'Country must be at least 2 characters'),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
@@ -35,6 +37,8 @@ export default function Auth() {
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [country, setCountry] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,6 +71,8 @@ export default function Auth() {
         email: signupEmail,
         password: signupPassword,
         confirmPassword,
+        companyName,
+        country,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -77,7 +83,7 @@ export default function Auth() {
 
     setIsLoading(true);
     try {
-      await signUp(signupEmail, signupPassword, signupName);
+      await signUp(signupEmail, signupPassword, signupName, companyName, country);
     } catch (error: any) {
       if (error.message.includes('already registered')) {
         toast.error('This email is already registered. Please sign in instead.');
@@ -163,6 +169,28 @@ export default function Auth() {
                     placeholder="you@example.com"
                     value={signupEmail}
                     onChange={(e) => setSignupEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="company-name">Company Name</Label>
+                  <Input
+                    id="company-name"
+                    type="text"
+                    placeholder="Acme Inc"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="country">Country</Label>
+                  <Input
+                    id="country"
+                    type="text"
+                    placeholder="United States"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
                     required
                   />
                 </div>

@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      companies: {
+        Row: {
+          country: string
+          created_at: string | null
+          currency: string
+          id: string
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          country: string
+          created_at?: string | null
+          currency?: string
+          id?: string
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          country?: string
+          created_at?: string | null
+          currency?: string
+          id?: string
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       expenses: {
         Row: {
           amount: number
@@ -55,38 +82,52 @@ export type Database = {
       }
       profiles: {
         Row: {
+          company_id: string | null
           created_at: string | null
           id: string
           name: string
         }
         Insert: {
+          company_id?: string | null
           created_at?: string | null
           id: string
           name: string
         }
         Update: {
+          company_id?: string | null
           created_at?: string | null
           id?: string
           name?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
           created_at: string | null
           id: string
+          manager_id: string | null
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Insert: {
           created_at?: string | null
           id?: string
+          manager_id?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Update: {
           created_at?: string | null
           id?: string
+          manager_id?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }

@@ -10,12 +10,23 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 export default function ManageUsers() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedManagerId, setSelectedManagerId] = useState<string>("");
 
   // Check if user is admin
   const { data: isAdmin, isLoading: checkingRole } = useQuery({
@@ -43,48 +54,75 @@ export default function ManageUsers() {
     }
   }, [isAdmin, checkingRole, navigate]);
 
-  // Fetch all users with roles
-  const { data: users, isLoading, error } = useQuery({
-    queryKey: ['users'],
+  // Fetch current user's company_id
+  const { data: currentUserProfile } = useQuery({
+    queryKey: ['currentUserProfile', user?.id],
     queryFn: async () => {
-      const { data: profilesData, error: profilesError } = await supabase
+      if (!user?.id) return null;
+      const { data, error } = await supabase
         .from('profiles')
-        .select('id, name')
-        .order('name');
-
-      if (profilesError) throw profilesError;
-
-      // Get roles for all users
-      const { data: rolesData } = await supabase
-        .from('user_roles')
-        .select('user_id, role');
-
-      const rolesMap = new Map(rolesData?.map(r => [r.user_id, r.role]) || []);
-
-      return profilesData?.map(profile => ({
-        ...profile,
-        role: rolesMap.get(profile.id) || 'employee'
-      })) || [];
+        .select('company_id')
+        .eq('id', user.id)
+        .single();
+      
+      if (error) throw error;
+      return data;
     },
-    enabled: !!isAdmin,
+    enabled: !!user?.id && !!isAdmin,
+  });
+
+  // Fetch all users from the same company
+  const { data: users, isLoading, error } = useQuery({
+    queryKey: ['users', currentUserProfile?.company_id],
+    queryFn: async () => {
+      if (!currentUserProfile?.company_id) return [];
+      
+      // Fetch all profiles from the same company
+      const { data: profiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, name, created_at, company_id')
+        .eq('company_id', currentUserProfile.company_id)
+        .order('name');
+      
+      if (profileError) throw profileError;
+      
+      // Fetch user roles for these users
+      const { data: roles, error: roleError } = await supabase
+        .from('user_roles')
+        .select('user_id, role, manager_id');
+      
+      if (roleError) throw roleError;
+
+      // Get auth users to fetch emails
+      const userIds = profiles.map(p => p.id);
+      let authUsers: any[] = [];
+      
+      // Note: admin.listUsers() requires service role, so we'll skip email for now
+      // or handle it differently based on your RLS policies
+      
+      // Combine the data
+      return profiles.map(profile => {
+        const userRole = roles.find(r => r.user_id === profile.id);
+        const manager = profiles.find(p => p.id === userRole?.manager_id);
+        
+        return {
+          ...profile,
+          role: userRole?.role || 'employee',
+          manager_id: userRole?.manager_id,
+          manager_name: manager?.name || null,
+        };
+      });
+    },
+    enabled: !!isAdmin && !!currentUserProfile?.company_id,
   });
 
   // Update user role mutation
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, newRole }: { userId: string; newRole: string }) => {
-      // Delete existing role
-      await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', userId);
-
-      // Insert new role
       const { error } = await supabase
         .from('user_roles')
-        .insert([{
-          user_id: userId,
-          role: newRole as 'employee' | 'manager' | 'admin',
-        }]);
+        .update({ role: newRole as 'employee' | 'manager' | 'admin' })
+        .eq('user_id', userId);
 
       if (error) throw error;
     },
@@ -99,8 +137,37 @@ export default function ManageUsers() {
     },
   });
 
+  // Mutation to assign manager
+  const assignManagerMutation = useMutation({
+    mutationFn: async ({ userId, managerId }: { userId: string; managerId: string | null }) => {
+      const { error } = await supabase
+        .from('user_roles')
+        .update({ manager_id: managerId })
+        .eq('user_id', userId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('Manager assigned successfully');
+      setSelectedUserId(null);
+      setSelectedManagerId("");
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to assign manager');
+    },
+  });
+
   const handleRoleChange = (userId: string, newRole: string) => {
     updateRoleMutation.mutate({ userId, newRole });
+  };
+
+  const handleAssignManager = () => {
+    if (!selectedUserId) return;
+    assignManagerMutation.mutate({ 
+      userId: selectedUserId, 
+      managerId: selectedManagerId || null 
+    });
   };
 
   const getRoleColor = (role: string): "default" | "secondary" | "destructive" => {
@@ -113,6 +180,12 @@ export default function ManageUsers() {
         return 'secondary';
     }
   };
+
+  // Get potential managers (admins and managers, excluding the selected user)
+  const potentialManagers = users?.filter(u => 
+    (u.role === 'admin' || u.role === 'manager') && 
+    u.id !== selectedUserId
+  ) || [];
 
   if (checkingRole || (!isAdmin && !checkingRole)) {
     return null;
@@ -178,23 +251,30 @@ export default function ManageUsers() {
                       <TableHead>Name</TableHead>
                       <TableHead>User ID</TableHead>
                       <TableHead>Current Role</TableHead>
+                      <TableHead>Manager</TableHead>
                       <TableHead className="text-right">Change Role</TableHead>
+                      <TableHead className="text-right">Assign Manager</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {users.map((user: any) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-medium">{user.name}</TableCell>
-                        <TableCell>{user.id}</TableCell>
+                    {users.map((userItem: any) => (
+                      <TableRow key={userItem.id}>
+                        <TableCell className="font-medium">{userItem.name}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {userItem.id.slice(0, 8)}...
+                        </TableCell>
                         <TableCell>
-                          <Badge variant={getRoleColor(user.role)} className="capitalize">
-                            {user.role}
+                          <Badge variant={getRoleColor(userItem.role)} className="capitalize">
+                            {userItem.role}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {userItem.manager_name || <span className="text-muted-foreground">None</span>}
                         </TableCell>
                         <TableCell className="text-right">
                           <Select
-                            value={user.role}
-                            onValueChange={(newRole) => handleRoleChange(user.id, newRole)}
+                            value={userItem.role}
+                            onValueChange={(newRole) => handleRoleChange(userItem.id, newRole)}
                             disabled={updateRoleMutation.isPending}
                           >
                             <SelectTrigger className="w-[140px] ml-auto">
@@ -206,6 +286,58 @@ export default function ManageUsers() {
                               <SelectItem value="admin">Admin</SelectItem>
                             </SelectContent>
                           </Select>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Dialog 
+                            open={selectedUserId === userItem.id}
+                            onOpenChange={(open) => {
+                              if (open) {
+                                setSelectedUserId(userItem.id);
+                                setSelectedManagerId(userItem.manager_id || "");
+                              } else {
+                                setSelectedUserId(null);
+                                setSelectedManagerId("");
+                              }
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                Assign Manager
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Assign Manager</DialogTitle>
+                                <DialogDescription>
+                                  Select a manager for {userItem.name}
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <Label htmlFor="manager">Manager</Label>
+                                  <Select
+                                    value={selectedManagerId}
+                                    onValueChange={setSelectedManagerId}
+                                  >
+                                    <SelectTrigger id="manager">
+                                      <SelectValue placeholder="Select a manager" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="">No Manager</SelectItem>
+                                      {potentialManagers.map((manager) => (
+                                        <SelectItem key={manager.id} value={manager.id}>
+                                          {manager.name} ({manager.role})
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <Button onClick={handleAssignManager} className="w-full">
+                                  Assign Manager
+                                </Button>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
                         </TableCell>
                       </TableRow>
                     ))}
