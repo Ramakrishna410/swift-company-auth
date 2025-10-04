@@ -131,16 +131,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Login failed');
     }
     
-    // Fetch role and profile, then persist to localStorage
+    // Fetch role and profile
     const [{ data: roleData }, { data: profileData }] = await Promise.all([
-      supabase.from('user_roles').select('role').eq('user_id', data.user.id).single(),
-      supabase.from('profiles').select('employee_id, name, company_id, email').eq('id', data.user.id).single(),
+      supabase.from('user_roles').select('role').eq('user_id', data.user.id).maybeSingle(),
+      supabase.from('profiles').select('employee_id, name, company_id, email').eq('id', data.user.id).maybeSingle(),
     ]);
 
-    const existing = localStorage.getItem('user');
-    const existingRole = existing ? (JSON.parse(existing).role as 'admin' | 'manager' | 'employee') : null;
+    const stored = localStorage.getItem('user');
+    const storedRole = stored ? (JSON.parse(stored).role as 'admin' | 'manager' | 'employee') : null;
+    const metaRole = (data.user.user_metadata?.role as 'admin' | 'manager' | 'employee' | undefined) ?? null;
 
-    const finalRole: 'admin' | 'manager' | 'employee' = (roleData?.role as any) || existingRole || 'employee';
+    const finalRole: 'admin' | 'manager' | 'employee' = (roleData?.role as any) || metaRole || storedRole || 'employee';
 
     const userData = {
       role: finalRole,
@@ -201,6 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: name,
           company_name: companyName,
           country: country,
+          role: role,
         },
       },
     });

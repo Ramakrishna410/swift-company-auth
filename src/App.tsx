@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
+import RoleRedirect from "./components/RoleRedirect";
 import Auth from "./pages/Auth";
 import SubmitExpense from "./pages/SubmitExpense";
 import MyExpenses from "./pages/MyExpenses";
@@ -30,7 +31,7 @@ const App = () => (
         <AuthProvider>
           <Routes>
             <Route path="/auth" element={<Auth />} />
-            <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+            <Route path="/" element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
             <Route path="/login" element={<Navigate to="/auth" replace />} />
             <Route path="/submit-expense" element={<ProtectedRoute><SubmitExpense /></ProtectedRoute>} />
             <Route path="/my-expenses" element={<ProtectedRoute><MyExpenses /></ProtectedRoute>} />

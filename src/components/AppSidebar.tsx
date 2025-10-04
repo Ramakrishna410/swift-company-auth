@@ -18,16 +18,19 @@ type UserRole = "admin" | "manager" | "employee";
 
 const roleMenuItems = {
   employee: [
+    { title: "Employee Dashboard", url: "/employee-dashboard", icon: Receipt },
     { title: "Submit Expense", url: "/submit-expense", icon: Receipt },
     { title: "My Expenses", url: "/my-expenses", icon: FileText },
   ],
   manager: [
+    { title: "Manager Dashboard", url: "/manager-dashboard", icon: DollarSign },
     { title: "Submit Expense", url: "/submit-expense", icon: Receipt },
     { title: "My Expenses", url: "/my-expenses", icon: FileText },
     { title: "Pending Approvals", url: "/pending-approvals", icon: CheckSquare },
     { title: "Team Expenses", url: "/team-expenses", icon: DollarSign },
   ],
   admin: [
+    { title: "Admin Dashboard", url: "/admin-dashboard", icon: Settings },
     { title: "Manage Users", url: "/manage-users", icon: Users },
     { title: "All Expenses", url: "/all-expenses", icon: FileText },
     { title: "Approval Rules", url: "/approval-rules", icon: Settings },
