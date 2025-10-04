@@ -49,14 +49,14 @@ export function AppSidebar() {
   const roleLabel = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Employee';
 
   return (
-    <Sidebar collapsible="none">
-      <SidebarContent>
+    <Sidebar collapsible="none" className="border-r bg-background">
+      <SidebarContent className="bg-background">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-sm font-semibold text-foreground">
+          <SidebarGroupLabel className="text-sm font-semibold text-foreground px-4 py-3">
             {open && `${roleLabel} Dashboard`}
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="space-y-1 px-2">
               {items.map((item) => {
                 const isActive = currentPath === item.url;
                 return (
@@ -66,16 +66,17 @@ export function AppSidebar() {
                         to={item.url}
                         className={({ isActive }) =>
                           cn(
-                            "flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors",
-                            "text-foreground", // Always visible text
+                            "flex items-center gap-3 px-4 py-3 text-sm font-medium",
+                            "rounded-xl transition-all duration-300",
+                            "text-foreground opacity-100 visible", // Force visibility
                             isActive
-                              ? "bg-accent text-accent-foreground font-semibold"
-                              : "hover:bg-muted/50 hover:text-foreground"
+                              ? "bg-primary/10 text-primary font-bold shadow-sm"
+                              : "hover:bg-primary/5 hover:text-primary hover:shadow-sm"
                           )
                         }
                       >
-                        <item.icon className="h-4 w-4 shrink-0" />
-                        <span className="truncate">{item.title}</span>
+                        <item.icon className="h-5 w-5 shrink-0 opacity-100" />
+                        <span className="truncate opacity-100">{item.title}</span>
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
