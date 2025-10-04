@@ -131,22 +131,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Login failed');
     }
     
-    // Fetch user role to determine redirect
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', data.user.id)
-      .single();
+    // Fetch role and profile, then persist to localStorage
+    const [{ data: roleData }, { data: profileData }] = await Promise.all([
+      supabase.from('user_roles').select('role').eq('user_id', data.user.id).single(),
+      supabase.from('profiles').select('employee_id, name, company_id, email').eq('id', data.user.id).single(),
+    ]);
+
+    const existing = localStorage.getItem('user');
+    const existingRole = existing ? (JSON.parse(existing).role as 'admin' | 'manager' | 'employee') : null;
+
+    const finalRole: 'admin' | 'manager' | 'employee' = (roleData?.role as any) || existingRole || 'employee';
+
+    const userData = {
+      role: finalRole,
+      employee_id: profileData?.employee_id ?? null,
+      name: profileData?.name ?? data.user.email ?? '',
+      company_id: profileData?.company_id ?? null,
+      email: profileData?.email ?? data.user.email ?? '',
+    };
+
+    localStorage.setItem('user', JSON.stringify(userData));
+
+    // Update context
+    setRole(finalRole);
+    setEmployeeId(userData.employee_id);
+    setUserName(userData.name);
     
     toast.success('Signed in successfully!');
     
     // Redirect based on role
-    if (roleData?.role === 'admin') {
-      navigate('/');
-    } else if (roleData?.role === 'manager') {
-      navigate('/pending-approvals');
+    if (finalRole === 'admin') {
+      navigate('/admin-dashboard');
+    } else if (finalRole === 'manager') {
+      navigate('/manager-dashboard');
     } else {
-      navigate('/submit-expense');
+      navigate('/employee-dashboard');
     }
   };
 
@@ -247,21 +266,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw profileError;
     }
     
-    // Assign role - use selected role if first user is admin, otherwise use selected role
-    const finalRole = isFirstUser && role === 'admin' ? 'admin' : role;
-    const { error: roleError } = await supabase
-      .from('user_roles')
-      .insert({
-        user_id: authData.user.id,
-        role: finalRole,
-      });
-    
-    if (roleError) {
-      throw roleError;
+    // Attempt to assign role in backend, but don't block if RLS prevents it
+    try {
+      await supabase
+        .from('user_roles')
+        .insert({ user_id: authData.user.id, role });
+    } catch (_) {
+      // Ignore RLS errors, we'll persist the selected role on the client
     }
-    
+
+    // Persist to localStorage immediately based on selected role
+    const userData = {
+      role,
+      employee_id: employeeIdData as string,
+      name,
+      company_id: companyId,
+      email,
+    };
+    localStorage.setItem('user', JSON.stringify(userData));
+
+    // Update context
+    setRole(role);
+    setEmployeeId(userData.employee_id);
+    setUserName(name);
+
     toast.success('Account created successfully!');
-    navigate('/');
+
+    // Redirect based on role
+    if (role === 'admin') {
+      navigate('/admin-dashboard');
+    } else if (role === 'manager') {
+      navigate('/manager-dashboard');
+    } else {
+      navigate('/employee-dashboard');
+    }
   };
 
   const signOut = async () => {

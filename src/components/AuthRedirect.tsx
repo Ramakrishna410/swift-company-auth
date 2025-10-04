@@ -12,11 +12,11 @@ export function AuthRedirect() {
     if (role) {
       // Redirect based on role
       if (role === 'admin') {
-        navigate('/', { replace: true });
+        navigate('/admin-dashboard', { replace: true });
       } else if (role === 'manager') {
-        navigate('/pending-approvals', { replace: true });
+        navigate('/manager-dashboard', { replace: true });
       } else if (role === 'employee') {
-        navigate('/submit-expense', { replace: true });
+        navigate('/employee-dashboard', { replace: true });
       }
     }
   }, [role, loading, navigate]);

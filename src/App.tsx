@@ -17,6 +17,7 @@ import ApprovalRules from "./pages/ApprovalRules";
 import NotFound from "./pages/NotFound";
 import ManagerDashboard from "./pages/ManagerDashboard";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 
 const queryClient = new QueryClient();
 
@@ -38,8 +39,9 @@ const App = () => (
             <Route path="/manage-users" element={<ProtectedRoute><ManageUsers /></ProtectedRoute>} />
             <Route path="/all-expenses" element={<ProtectedRoute><AllExpenses /></ProtectedRoute>} />
             <Route path="/approval-rules" element={<ProtectedRoute><ApprovalRules /></ProtectedRoute>} />
-            <Route path="/manager-dashboard" element={<ManagerDashboard />} />
-            <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
+            <Route path="/manager-dashboard" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
+            <Route path="/employee-dashboard" element={<ProtectedRoute><EmployeeDashboard /></ProtectedRoute>} />
+            <Route path="/admin-dashboard" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

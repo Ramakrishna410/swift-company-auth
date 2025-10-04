@@ -46,7 +46,7 @@ export function AppSidebar() {
   const roleLabel = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Employee';
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="none">
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="text-sm font-semibold text-foreground">
