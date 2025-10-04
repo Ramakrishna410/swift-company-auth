@@ -1,6 +1,7 @@
 import { FileText, CheckSquare, Users, DollarSign, Settings, Receipt } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
@@ -48,7 +49,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-sm font-semibold">
+          <SidebarGroupLabel className="text-sm font-semibold text-foreground">
             {open && `${roleLabel} Dashboard`}
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -61,13 +62,17 @@ export function AppSidebar() {
                       <NavLink
                         to={item.url}
                         className={({ isActive }) =>
-                          isActive
-                            ? "bg-accent text-accent-foreground font-medium"
-                            : "hover:bg-muted/50"
+                          cn(
+                            "flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors",
+                            "text-foreground", // Always visible text
+                            isActive
+                              ? "bg-accent text-accent-foreground font-semibold"
+                              : "hover:bg-muted/50 hover:text-foreground"
+                          )
                         }
                       >
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                        <item.icon className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{item.title}</span>
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

@@ -28,6 +28,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Check localStorage first
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        const userData = JSON.parse(storedUser);
+        setRole(userData.role);
+        setEmployeeId(userData.employee_id);
+        setUserName(userData.name);
+      } catch (error) {
+        console.error('Error parsing stored user:', error);
+        localStorage.removeItem('user');
+      }
+    }
+
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
@@ -43,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setRole(null);
           setEmployeeId(null);
           setUserName(null);
+          localStorage.removeItem('user');
         }
         
         setLoading(false);
@@ -73,20 +88,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('user_id', userId)
         .single();
       
-      if (roleData) {
-        setRole(roleData.role);
-      }
-
       // Fetch profile
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('employee_id, name')
+        .select('employee_id, name, company_id, email')
         .eq('id', userId)
         .single();
       
-      if (profileData) {
+      if (roleData && profileData) {
+        const userData = {
+          role: roleData.role,
+          employee_id: profileData.employee_id,
+          name: profileData.name,
+          company_id: profileData.company_id,
+          email: profileData.email,
+        };
+        
+        // Save to state
+        setRole(roleData.role);
         setEmployeeId(profileData.employee_id);
         setUserName(profileData.name);
+        
+        // Save to localStorage
+        localStorage.setItem('user', JSON.stringify(userData));
       }
     } catch (error) {
       console.error('Error fetching user data:', error);
@@ -246,6 +270,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       toast.error('Error signing out');
       throw error;
     }
+    // Clear localStorage
+    localStorage.removeItem('user');
     toast.success('Signed out successfully');
     navigate('/auth');
   };

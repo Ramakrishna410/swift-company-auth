@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { AuthRedirect } from '@/components/AuthRedirect';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,7 +27,7 @@ const signupSchema = loginSchema.extend({
 });
 
 export default function Auth() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, role: userRole } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   
   // Login form state
@@ -40,7 +41,7 @@ export default function Auth() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [country, setCountry] = useState('');
-  const [role, setRole] = useState<'admin' | 'manager' | 'employee'>('employee');
+  const [selectedRole, setSelectedRole] = useState<'admin' | 'manager' | 'employee'>('employee');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,7 +76,7 @@ export default function Auth() {
         confirmPassword,
         companyName,
         country,
-        role,
+        role: selectedRole,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -86,7 +87,7 @@ export default function Auth() {
 
     setIsLoading(true);
     try {
-      await signUp(signupEmail, signupPassword, signupName, companyName, country, role);
+      await signUp(signupEmail, signupPassword, signupName, companyName, country, selectedRole);
     } catch (error: any) {
       if (error.message.includes('already registered')) {
         toast.error('This email is already registered. Please sign in instead.');
@@ -97,6 +98,11 @@ export default function Auth() {
       setIsLoading(false);
     }
   };
+
+  // Redirect if already logged in
+  if (userRole) {
+    return <AuthRedirect />;
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/5 p-4">
@@ -208,8 +214,8 @@ export default function Auth() {
                   <Label htmlFor="role">Role</Label>
                   <select
                     id="role"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as 'admin' | 'manager' | 'employee')}
+                    value={selectedRole}
+                    onChange={(e) => setSelectedRole(e.target.value as 'admin' | 'manager' | 'employee')}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     required
                   >
