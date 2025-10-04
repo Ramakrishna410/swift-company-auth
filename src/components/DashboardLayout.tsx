@@ -2,26 +2,43 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const navigate = useNavigate();
-  const [userName, setUserName] = useState("");
-  const [userRole, setUserRole] = useState("");
+  const { user, signOut } = useAuth();
 
-  useEffect(() => {
-    const name = localStorage.getItem("userName") || "User";
-    const role = localStorage.getItem("userRole") || "Employee";
-    setUserName(name);
-    setUserRole(role);
-  }, []);
+  // Fetch user profile and role
+  const { data: profile } = useQuery({
+    queryKey: ['profile', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', user.id)
+        .single();
+      return data;
+    },
+    enabled: !!user?.id,
+  });
 
-  const handleLogout = () => {
-    localStorage.removeItem("userRole");
-    localStorage.removeItem("userName");
-    navigate("/");
-  };
+  const { data: userRole } = useQuery({
+    queryKey: ['userRole', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .order('role')
+        .limit(1)
+        .single();
+      return data?.role || 'employee';
+    },
+    enabled: !!user?.id,
+  });
 
   return (
     <SidebarProvider>
@@ -35,13 +52,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-4">
               <div className="text-right">
-                <p className="text-sm font-medium">{userName}</p>
-                <p className="text-xs text-muted-foreground">{userRole}</p>
+                <p className="text-sm font-medium">{profile?.name || user?.email}</p>
+                <p className="text-xs text-muted-foreground capitalize">{userRole || 'employee'}</p>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={handleLogout}
+                onClick={signOut}
                 title="Logout"
               >
                 <LogOut className="h-5 w-5" />

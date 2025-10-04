@@ -1,13 +1,6 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,74 +8,63 @@ import { CheckCircle, XCircle, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useState } from "react";
-
-interface PendingExpense {
-  id: string;
-  employee: string;
-  amount: number;
-  currency: string;
-  date: string;
-  status: string;
-  description: string;
-}
+import { supabase } from "@/integrations/supabase/client";
 
 export default function PendingApprovals() {
   const queryClient = useQueryClient();
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  // Fetch pending approvals
-  const { data: expenses, isLoading, error } = useQuery<PendingExpense[]>({
+  // Fetch pending approvals with employee names
+  const { data: expenses, isLoading, error } = useQuery({
     queryKey: ["pending-approvals"],
     queryFn: async () => {
-      const response = await fetch("http://localhost:8000/approvals/pending");
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-      return response.json();
+      const { data: expensesData, error: expensesError } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+
+      if (expensesError) throw expensesError;
+
+      // Fetch profile names for each expense
+      const ownerIds = [...new Set(expensesData?.map(e => e.owner_id) || [])];
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .in('id', ownerIds);
+
+      const profileMap = new Map(profilesData?.map(p => [p.id, p.name]) || []);
+
+      return expensesData?.map(expense => ({
+        ...expense,
+        employee: profileMap.get(expense.owner_id) || 'Unknown'
+      })) || [];
     },
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: 30000,
   });
 
   // Approve/Reject mutation
   const approvalMutation = useMutation({
     mutationFn: async ({ expenseId, action }: { expenseId: string; action: "approve" | "reject" }) => {
-      const response = await fetch(`http://localhost:8000/approvals/${expenseId}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action,
-          reviewed_by: localStorage.getItem("userName") || "Unknown",
-        }),
-      });
+      const { error } = await supabase
+        .from('expenses')
+        .update({ status: action === "approve" ? "approved" : "rejected" })
+        .eq('id', expenseId);
 
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-
-      return response.json();
+      if (error) throw error;
     },
     onSuccess: (data, variables) => {
       const action = variables.action;
       toast.success(
-        `Expense ${action === "approve" ? "approved" : "rejected"} successfully!`,
-        {
-          description: `Expense ID: ${variables.expenseId}`,
-        }
+        `Expense ${action === "approve" ? "approved" : "rejected"} successfully!`
       );
-      // Refetch the pending approvals
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
       setProcessingId(null);
     },
-    onError: (error, variables) => {
-      console.error("Error processing approval:", error);
-      toast.error(
-        `Failed to ${variables.action} expense`,
-        {
-          description: error instanceof Error ? error.message : "Please try again later",
-        }
-      );
+    onError: (error: any) => {
+      toast.error("Failed to process expense", {
+        description: error.message,
+      });
       setProcessingId(null);
     },
   });
@@ -159,7 +141,7 @@ export default function PendingApprovals() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {expenses.map((expense) => (
+                    {expenses.map((expense: any) => (
                       <TableRow key={expense.id}>
                         <TableCell className="font-medium">{expense.employee}</TableCell>
                         <TableCell>
@@ -217,22 +199,6 @@ export default function PendingApprovals() {
                 </Table>
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Info Card */}
-        <Card className="bg-muted/50">
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              <strong>Note:</strong> Fetching data from{" "}
-              <code className="text-xs bg-background px-1 py-0.5 rounded">
-                http://localhost:8000/approvals/pending
-              </code>
-              . Approvals sent to{" "}
-              <code className="text-xs bg-background px-1 py-0.5 rounded">
-                POST /approvals/{"{expense_id}"}
-              </code>
-            </p>
           </CardContent>
         </Card>
       </div>

@@ -1,97 +1,101 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, AlertCircle, Shield, Users as UsersIcon } from "lucide-react";
 import { toast } from "sonner";
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: "Admin" | "Manager" | "Employee";
-}
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 
 export default function ManageUsers() {
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
-  const currentUserRole = localStorage.getItem("userRole");
+  const navigate = useNavigate();
 
-  // Redirect if not Admin
+  // Check if user is admin
+  const { data: isAdmin, isLoading: checkingRole } = useQuery({
+    queryKey: ['isAdmin', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return false;
+      const { data } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('role', 'admin')
+        .single();
+      return !!data;
+    },
+    enabled: !!user?.id,
+  });
+
+  // Redirect if not admin
   useEffect(() => {
-    if (currentUserRole !== "Admin") {
+    if (!checkingRole && !isAdmin) {
       toast.error("Access Denied", {
         description: "Only Admins can access this page",
       });
       navigate("/");
     }
-  }, [currentUserRole, navigate]);
+  }, [isAdmin, checkingRole, navigate]);
 
-  // Fetch users
-  const { data: users, isLoading, error } = useQuery<User[]>({
-    queryKey: ["users"],
+  // Fetch all users with roles
+  const { data: users, isLoading, error } = useQuery({
+    queryKey: ['users'],
     queryFn: async () => {
-      const response = await fetch("http://localhost:8000/users");
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-      return response.json();
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .order('name');
+
+      if (profilesError) throw profilesError;
+
+      // Get roles for all users
+      const { data: rolesData } = await supabase
+        .from('user_roles')
+        .select('user_id, role');
+
+      const rolesMap = new Map(rolesData?.map(r => [r.user_id, r.role]) || []);
+
+      return profilesData?.map(profile => ({
+        ...profile,
+        role: rolesMap.get(profile.id) || 'employee'
+      })) || [];
     },
-    enabled: currentUserRole === "Admin", // Only fetch if admin
+    enabled: !!isAdmin,
   });
 
-  // Update role mutation
+  // Update user role mutation
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, newRole }: { userId: string; newRole: string }) => {
-      const response = await fetch(`http://localhost:8000/users/${userId}/role`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          role: newRole,
-          updated_by: localStorage.getItem("userName") || "Unknown",
-        }),
-      });
+      // Delete existing role
+      await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId);
 
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
+      // Insert new role
+      const { error } = await supabase
+        .from('user_roles')
+        .insert([{
+          user_id: userId,
+          role: newRole as 'employee' | 'manager' | 'admin',
+        }]);
 
-      return response.json();
+      if (error) throw error;
     },
-    onSuccess: (data, variables) => {
-      toast.success("Role updated successfully!", {
-        description: `User role changed to ${variables.newRole}`,
-      });
-      // Refetch users list
-      queryClient.invalidateQueries({ queryKey: ["users"] });
+    onSuccess: () => {
+      toast.success('User role updated successfully!');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
     },
-    onError: (error, variables) => {
-      console.error("Error updating role:", error);
-      toast.error("Failed to update role", {
-        description: error instanceof Error ? error.message : "Please try again later",
+    onError: (error: any) => {
+      toast.error('Failed to update user role', {
+        description: error.message,
       });
-      // Revert optimistic update by refetching
-      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 
@@ -99,21 +103,18 @@ export default function ManageUsers() {
     updateRoleMutation.mutate({ userId, newRole });
   };
 
-  const getRoleBadgeVariant = (role: string) => {
+  const getRoleColor = (role: string): "default" | "secondary" | "destructive" => {
     switch (role) {
-      case "Admin":
-        return "destructive";
-      case "Manager":
-        return "default";
-      case "Employee":
-        return "secondary";
+      case 'admin':
+        return 'destructive';
+      case 'manager':
+        return 'default';
       default:
-        return "secondary";
+        return 'secondary';
     }
   };
 
-  // Don't render if not admin
-  if (currentUserRole !== "Admin") {
+  if (checkingRole || (!isAdmin && !checkingRole)) {
     return null;
   }
 
@@ -175,18 +176,18 @@ export default function ManageUsers() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
+                      <TableHead>User ID</TableHead>
                       <TableHead>Current Role</TableHead>
                       <TableHead className="text-right">Change Role</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {users.map((user) => (
+                    {users.map((user: any) => (
                       <TableRow key={user.id}>
                         <TableCell className="font-medium">{user.name}</TableCell>
-                        <TableCell>{user.email}</TableCell>
+                        <TableCell>{user.id}</TableCell>
                         <TableCell>
-                          <Badge variant={getRoleBadgeVariant(user.role)}>
+                          <Badge variant={getRoleColor(user.role)} className="capitalize">
                             {user.role}
                           </Badge>
                         </TableCell>
@@ -200,9 +201,9 @@ export default function ManageUsers() {
                               <SelectValue placeholder="Select role" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Employee">Employee</SelectItem>
-                              <SelectItem value="Manager">Manager</SelectItem>
-                              <SelectItem value="Admin">Admin</SelectItem>
+                              <SelectItem value="employee">Employee</SelectItem>
+                              <SelectItem value="manager">Manager</SelectItem>
+                              <SelectItem value="admin">Admin</SelectItem>
                             </SelectContent>
                           </Select>
                         </TableCell>
@@ -215,21 +216,7 @@ export default function ManageUsers() {
           </CardContent>
         </Card>
 
-        {/* Info Card */}
-        <Card className="bg-muted/50">
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              <strong>Note:</strong> Fetching users from{" "}
-              <code className="text-xs bg-background px-1 py-0.5 rounded">
-                http://localhost:8000/users
-              </code>
-              . Role updates sent to{" "}
-              <code className="text-xs bg-background px-1 py-0.5 rounded">
-                PATCH /users/{"{id}"}/role
-              </code>
-            </p>
-          </CardContent>
-        </Card>
+        {/* Info removed - now using Lovable Cloud */}
       </div>
     </DashboardLayout>
   );

@@ -2,38 +2,22 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { CalendarIcon, Upload, Loader2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CalendarIcon, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { toast } from "sonner";
 import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 const expenseFormSchema = z.object({
   amount: z.string()
@@ -53,7 +37,8 @@ const expenseFormSchema = z.object({
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 
 export default function SubmitExpense() {
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<ExpenseFormValues>({
@@ -65,78 +50,41 @@ export default function SubmitExpense() {
     },
   });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("File size must be less than 5MB");
-        return;
-      }
-      // Validate file type
-      const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"];
-      if (!allowedTypes.includes(file.type)) {
-        toast.error("Only JPG, PNG, WEBP, and PDF files are allowed");
-        return;
-      }
-      setReceiptFile(file);
-      toast.success("Receipt uploaded successfully");
-    }
-  };
+  const createExpenseMutation = useMutation({
+    mutationFn: async (data: ExpenseFormValues) => {
+      const { error } = await supabase
+        .from('expenses')
+        .insert({
+          amount: parseFloat(data.amount),
+          currency: data.currency,
+          description: data.description,
+          date: data.date.toISOString(),
+          owner_id: user?.id,
+          status: 'pending',
+        });
 
-  const onSubmit = async (data: ExpenseFormValues) => {
-    if (!receiptFile) {
-      toast.error("Please upload a receipt");
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      // Prepare form data
-      const formData = new FormData();
-      formData.append("amount", data.amount);
-      formData.append("currency", data.currency);
-      formData.append("description", data.description);
-      formData.append("date", data.date.toISOString());
-      formData.append("receipt", receiptFile);
-      formData.append("user_id", localStorage.getItem("userName") || "Unknown");
-
-      // Call the API
-      const response = await fetch("http://localhost:8000/expenses", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      
-      toast.success("Expense submitted successfully!", {
-        description: `Expense ID: ${result.id || "N/A"}`,
-      });
-
-      // Clear form
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Expense submitted successfully!");
       form.reset({
         amount: "",
         currency: "USD",
         description: "",
       });
-      setReceiptFile(null);
-      
-      // Clear file input
-      const fileInput = document.getElementById("receipt-upload") as HTMLInputElement;
-      if (fileInput) {
-        fileInput.value = "";
-      }
-
-    } catch (error) {
-      console.error("Error submitting expense:", error);
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+    },
+    onError: (error: any) => {
       toast.error("Failed to submit expense", {
-        description: error instanceof Error ? error.message : "Please try again later",
+        description: error.message,
       });
+    },
+  });
+
+  const onSubmit = async (data: ExpenseFormValues) => {
+    setIsSubmitting(true);
+    try {
+      await createExpenseMutation.mutateAsync(data);
     } finally {
       setIsSubmitting(false);
     }
@@ -276,29 +224,6 @@ export default function SubmitExpense() {
                   )}
                 />
 
-                {/* Receipt Upload */}
-                <div className="space-y-2">
-                  <Label htmlFor="receipt-upload">Receipt Upload</Label>
-                  <div className="flex items-center gap-4">
-                    <Input
-                      id="receipt-upload"
-                      type="file"
-                      accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
-                      onChange={handleFileChange}
-                      className="cursor-pointer"
-                    />
-                    <Upload className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  {receiptFile && (
-                    <p className="text-sm text-muted-foreground">
-                      Selected: {receiptFile.name} ({(receiptFile.size / 1024).toFixed(2)} KB)
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Max file size: 5MB. Supported formats: JPG, PNG, WEBP, PDF
-                  </p>
-                </div>
-
                 {/* Submit Button */}
                 <div className="flex gap-4">
                   <Button type="submit" disabled={isSubmitting} className="flex-1">
@@ -314,12 +239,7 @@ export default function SubmitExpense() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => {
-                      form.reset();
-                      setReceiptFile(null);
-                      const fileInput = document.getElementById("receipt-upload") as HTMLInputElement;
-                      if (fileInput) fileInput.value = "";
-                    }}
+                    onClick={() => form.reset()}
                     disabled={isSubmitting}
                   >
                     Clear Form
@@ -327,19 +247,6 @@ export default function SubmitExpense() {
                 </div>
               </form>
             </Form>
-          </CardContent>
-        </Card>
-
-        {/* Info Card */}
-        <Card className="bg-muted/50">
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              <strong>Note:</strong> The form will submit to{" "}
-              <code className="text-xs bg-background px-1 py-0.5 rounded">
-                http://localhost:8000/expenses
-              </code>
-              . Make sure your FastAPI backend is running on port 8000.
-            </p>
           </CardContent>
         </Card>
       </div>
