@@ -44,18 +44,28 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col">
-          <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6">
+          <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6 shadow-sm">
             <SidebarTrigger className="-ml-2" />
-            {company && (
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold text-sm">
+            {company ? (
+              <div className="flex items-center gap-3 border-r pr-4">
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60 text-primary-foreground font-bold text-base shadow-md">
                   {company.name.substring(0, 2).toUpperCase()}
                 </div>
                 <div>
-                  <h1 className="text-lg font-semibold">{company.name}</h1>
-                  <p className="text-xs text-muted-foreground">
-                    Default Currency: {company.currency}
+                  <h1 className="text-lg font-bold text-foreground">{company.name}</h1>
+                  <p className="text-xs text-muted-foreground font-medium">
+                    Currency: {company.currency}
                   </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 border-r pr-4">
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-muted animate-pulse">
+                  <span className="text-muted-foreground text-xs">...</span>
+                </div>
+                <div>
+                  <div className="h-5 w-32 bg-muted rounded animate-pulse mb-1"></div>
+                  <div className="h-3 w-24 bg-muted rounded animate-pulse"></div>
                 </div>
               </div>
             )}
