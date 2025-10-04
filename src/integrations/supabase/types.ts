@@ -14,6 +14,91 @@ export type Database = {
   }
   public: {
     Tables: {
+      approval_records: {
+        Row: {
+          approved_at: string | null
+          approver_id: string
+          approver_role: Database["public"]["Enums"]["app_role"]
+          comments: string | null
+          created_at: string | null
+          expense_id: string
+          id: string
+          sequence_order: number
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approver_id: string
+          approver_role: Database["public"]["Enums"]["app_role"]
+          comments?: string | null
+          created_at?: string | null
+          expense_id: string
+          id?: string
+          sequence_order: number
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approver_id?: string
+          approver_role?: Database["public"]["Enums"]["app_role"]
+          comments?: string | null
+          created_at?: string | null
+          expense_id?: string
+          id?: string
+          sequence_order?: number
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approval_records_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      approval_rules: {
+        Row: {
+          approver_role: Database["public"]["Enums"]["app_role"]
+          company_id: string
+          created_at: string | null
+          id: string
+          name: string
+          sequence_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          approver_role: Database["public"]["Enums"]["app_role"]
+          company_id: string
+          created_at?: string | null
+          id?: string
+          name: string
+          sequence_order: number
+          updated_at?: string | null
+        }
+        Update: {
+          approver_role?: Database["public"]["Enums"]["app_role"]
+          company_id?: string
+          created_at?: string | null
+          id?: string
+          name?: string
+          sequence_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approval_rules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           country: string
@@ -44,11 +129,14 @@ export type Database = {
       expenses: {
         Row: {
           amount: number
+          converted_amount: number | null
           created_at: string | null
           currency: string
           date: string
           description: string
           id: string
+          original_amount: number | null
+          original_currency: string
           owner_id: string
           receipt_url: string | null
           status: string
@@ -56,11 +144,14 @@ export type Database = {
         }
         Insert: {
           amount: number
+          converted_amount?: number | null
           created_at?: string | null
           currency?: string
           date: string
           description: string
           id?: string
+          original_amount?: number | null
+          original_currency?: string
           owner_id: string
           receipt_url?: string | null
           status?: string
@@ -68,11 +159,14 @@ export type Database = {
         }
         Update: {
           amount?: number
+          converted_amount?: number | null
           created_at?: string | null
           currency?: string
           date?: string
           description?: string
           id?: string
+          original_amount?: number | null
+          original_currency?: string
           owner_id?: string
           receipt_url?: string | null
           status?: string

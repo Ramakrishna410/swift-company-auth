@@ -3,31 +3,54 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, XCircle, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 export default function PendingApprovals() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [selectedExpense, setSelectedExpense] = useState<any>(null);
+  const [comments, setComments] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [actionType, setActionType] = useState<"approve" | "reject" | null>(null);
 
-  // Fetch pending approvals with employee names
+  // Fetch approvals assigned to current user
   const { data: expenses, isLoading, error } = useQuery({
-    queryKey: ["pending-approvals"],
+    queryKey: ["pending-approvals", user?.id],
     queryFn: async () => {
-      const { data: expensesData, error: expensesError } = await supabase
-        .from('expenses')
-        .select('*')
+      if (!user?.id) return [];
+      
+      // Get approval records where user is the approver
+      const { data: approvalRecords, error: approvalsError } = await supabase
+        .from('approval_records')
+        .select('*, expenses(*)')
+        .eq('approver_id', user.id)
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
 
-      if (expensesError) throw expensesError;
+      if (approvalsError) throw approvalsError;
+      
+      if (!approvalRecords || approvalRecords.length === 0) return [];
 
-      // Fetch profile names for each expense
-      const ownerIds = [...new Set(expensesData?.map(e => e.owner_id) || [])];
+      // Get employee names
+      const ownerIds = [...new Set(approvalRecords.map(r => r.expenses.owner_id))];
       const { data: profilesData } = await supabase
         .from('profiles')
         .select('id, name')
@@ -35,23 +58,85 @@ export default function PendingApprovals() {
 
       const profileMap = new Map(profilesData?.map(p => [p.id, p.name]) || []);
 
-      return expensesData?.map(expense => ({
-        ...expense,
-        employee: profileMap.get(expense.owner_id) || 'Unknown'
-      })) || [];
+      // Check if previous approvals in sequence are complete
+      const enrichedRecords = await Promise.all(
+        approvalRecords.map(async (record) => {
+          // Check if all previous approvals are completed
+          const { data: previousApprovals } = await supabase
+            .from('approval_records')
+            .select('status')
+            .eq('expense_id', record.expense_id)
+            .lt('sequence_order', record.sequence_order);
+          
+          const allPreviousApproved = previousApprovals?.every(a => a.status === 'approved') ?? true;
+          
+          return {
+            ...record,
+            expense: record.expenses,
+            employee: profileMap.get(record.expenses.owner_id) || 'Unknown',
+            canApprove: allPreviousApproved,
+          };
+        })
+      );
+
+      return enrichedRecords;
     },
+    enabled: !!user?.id,
     refetchInterval: 30000,
   });
 
   // Approve/Reject mutation
   const approvalMutation = useMutation({
-    mutationFn: async ({ expenseId, action }: { expenseId: string; action: "approve" | "reject" }) => {
-      const { error } = await supabase
-        .from('expenses')
-        .update({ status: action === "approve" ? "approved" : "rejected" })
-        .eq('id', expenseId);
+    mutationFn: async ({ 
+      recordId, 
+      expenseId, 
+      action, 
+      comments 
+    }: { 
+      recordId: string; 
+      expenseId: string; 
+      action: "approve" | "reject";
+      comments: string;
+    }) => {
+      // Update approval record
+      const { error: updateError } = await supabase
+        .from('approval_records')
+        .update({ 
+          status: action === "approve" ? "approved" : "rejected",
+          comments: comments,
+          approved_at: new Date().toISOString(),
+        })
+        .eq('id', recordId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
+
+      if (action === "reject") {
+        // If rejected, mark entire expense as rejected
+        const { error: expenseError } = await supabase
+          .from('expenses')
+          .update({ status: 'rejected' })
+          .eq('id', expenseId);
+        
+        if (expenseError) throw expenseError;
+      } else {
+        // If approved, check if this is the last approval
+        const { data: allApprovals } = await supabase
+          .from('approval_records')
+          .select('status')
+          .eq('expense_id', expenseId);
+        
+        const allApproved = allApprovals?.every(a => a.status === 'approved');
+        
+        if (allApproved) {
+          // All approvals complete, mark expense as approved
+          const { error: expenseError } = await supabase
+            .from('expenses')
+            .update({ status: 'approved' })
+            .eq('id', expenseId);
+          
+          if (expenseError) throw expenseError;
+        }
+      }
     },
     onSuccess: (data, variables) => {
       const action = variables.action;
@@ -60,6 +145,10 @@ export default function PendingApprovals() {
       );
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
       setProcessingId(null);
+      setDialogOpen(false);
+      setComments("");
+      setSelectedExpense(null);
+      setActionType(null);
     },
     onError: (error: any) => {
       toast.error("Failed to process expense", {
@@ -69,14 +158,22 @@ export default function PendingApprovals() {
     },
   });
 
-  const handleApprove = (expenseId: string) => {
-    setProcessingId(expenseId);
-    approvalMutation.mutate({ expenseId, action: "approve" });
+  const openApprovalDialog = (record: any, action: "approve" | "reject") => {
+    setSelectedExpense(record);
+    setActionType(action);
+    setDialogOpen(true);
   };
 
-  const handleReject = (expenseId: string) => {
-    setProcessingId(expenseId);
-    approvalMutation.mutate({ expenseId, action: "reject" });
+  const handleConfirmAction = () => {
+    if (!selectedExpense || !actionType) return;
+    
+    setProcessingId(selectedExpense.id);
+    approvalMutation.mutate({
+      recordId: selectedExpense.id,
+      expenseId: selectedExpense.expense_id,
+      action: actionType,
+      comments: comments,
+    });
   };
 
   return (
@@ -134,40 +231,58 @@ export default function PendingApprovals() {
                     <TableRow>
                       <TableHead>Employee</TableHead>
                       <TableHead>Amount</TableHead>
+                      <TableHead>Original</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Description</TableHead>
+                      <TableHead>Sequence</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {expenses.map((expense: any) => (
-                      <TableRow key={expense.id}>
-                        <TableCell className="font-medium">{expense.employee}</TableCell>
+                    {expenses.map((record: any) => (
+                      <TableRow key={record.id}>
+                        <TableCell className="font-medium">{record.employee}</TableCell>
                         <TableCell>
-                          {expense.currency} {Number(expense.amount).toLocaleString('en-US', {
+                          {record.expense.currency} {Number(record.expense.amount).toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}
                         </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {record.expense.original_currency !== record.expense.currency && (
+                            <span>
+                              {record.expense.original_currency} {Number(record.expense.original_amount).toFixed(2)}
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>
-                          {format(new Date(expense.date), "MMM dd, yyyy")}
+                          {format(new Date(record.expense.date), "MMM dd, yyyy")}
                         </TableCell>
                         <TableCell className="max-w-xs truncate">
-                          {expense.description}
+                          {record.expense.description}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="secondary">{expense.status}</Badge>
+                          <Badge variant="outline">
+                            Step {record.sequence_order}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {record.canApprove ? (
+                            <Badge variant="secondary">Ready</Badge>
+                          ) : (
+                            <Badge variant="outline">Waiting</Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button
                               size="sm"
                               variant="default"
-                              onClick={() => handleApprove(expense.id)}
-                              disabled={processingId === expense.id}
+                              onClick={() => openApprovalDialog(record, "approve")}
+                              disabled={!record.canApprove || processingId === record.id}
                             >
-                              {processingId === expense.id ? (
+                              {processingId === record.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
                                 <>
@@ -179,10 +294,10 @@ export default function PendingApprovals() {
                             <Button
                               size="sm"
                               variant="destructive"
-                              onClick={() => handleReject(expense.id)}
-                              disabled={processingId === expense.id}
+                              onClick={() => openApprovalDialog(record, "reject")}
+                              disabled={!record.canApprove || processingId === record.id}
                             >
-                              {processingId === expense.id ? (
+                              {processingId === record.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
                                 <>
@@ -202,6 +317,71 @@ export default function PendingApprovals() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Approval/Rejection Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {actionType === "approve" ? "Approve" : "Reject"} Expense
+            </DialogTitle>
+            <DialogDescription>
+              {actionType === "approve" 
+                ? "Add optional comments for this approval."
+                : "Please provide a reason for rejecting this expense."}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedExpense && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="text-muted-foreground">Employee:</div>
+                <div className="font-medium">{selectedExpense.employee}</div>
+                
+                <div className="text-muted-foreground">Amount:</div>
+                <div className="font-medium">
+                  {selectedExpense.expense.currency} {Number(selectedExpense.expense.amount).toFixed(2)}
+                </div>
+                
+                <div className="text-muted-foreground">Description:</div>
+                <div className="font-medium line-clamp-2">{selectedExpense.expense.description}</div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="comments">Comments {actionType === "reject" && "*"}</Label>
+                <Textarea
+                  id="comments"
+                  placeholder={actionType === "approve" ? "Optional comments..." : "Reason for rejection..."}
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  rows={4}
+                />
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDialogOpen(false);
+                setComments("");
+                setSelectedExpense(null);
+                setActionType(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={actionType === "approve" ? "default" : "destructive"}
+              onClick={handleConfirmAction}
+              disabled={actionType === "reject" && !comments.trim()}
+            >
+              {actionType === "approve" ? "Approve" : "Reject"} Expense
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Loader2 } from "lucide-react";
+import { CalendarIcon, Loader2, ScanLine } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useForm } from "react-hook-form";
@@ -14,10 +14,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 
 const expenseFormSchema = z.object({
   amount: z.string()
@@ -40,36 +40,162 @@ export default function SubmitExpense() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch company currency
+  const { data: companyData } = useQuery({
+    queryKey: ['company-currency', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single();
+      
+      if (!profile) return null;
+      
+      const { data: company } = await supabase
+        .from('companies')
+        .select('currency')
+        .eq('id', profile.company_id)
+        .single();
+      
+      return company;
+    },
+    enabled: !!user?.id,
+  });
+
+  // Fetch approval rules for the company
+  const { data: approvalRules } = useQuery({
+    queryKey: ['approval-rules', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single();
+      
+      if (!profile) return [];
+      
+      const { data: rules } = await supabase
+        .from('approval_rules')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .order('sequence_order');
+      
+      return rules || [];
+    },
+    enabled: !!user?.id,
+  });
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
       amount: "",
-      currency: "USD",
+      currency: companyData?.currency || "USD",
       description: "",
     },
   });
 
   const createExpenseMutation = useMutation({
     mutationFn: async (data: ExpenseFormValues) => {
-      const { error } = await supabase
+      const originalAmount = parseFloat(data.amount);
+      const originalCurrency = data.currency;
+      const companyCurrency = companyData?.currency || 'USD';
+      
+      let convertedAmount = originalAmount;
+      
+      // Convert currency if different from company currency
+      if (originalCurrency !== companyCurrency) {
+        try {
+          const response = await fetch(
+            `https://api.exchangerate-api.com/v4/latest/${originalCurrency}`
+          );
+          const rates = await response.json();
+          const rate = rates.rates[companyCurrency];
+          convertedAmount = originalAmount * rate;
+          console.log(`Converted ${originalAmount} ${originalCurrency} to ${convertedAmount} ${companyCurrency}`);
+        } catch (error) {
+          console.error('Currency conversion failed:', error);
+          toast.error('Failed to convert currency, using original amount');
+        }
+      }
+      
+      // Create expense
+      const { data: expenseData, error: expenseError } = await supabase
         .from('expenses')
         .insert({
-          amount: parseFloat(data.amount),
-          currency: data.currency,
+          amount: convertedAmount,
+          currency: companyCurrency,
+          original_amount: originalAmount,
+          original_currency: originalCurrency,
+          converted_amount: convertedAmount,
           description: data.description,
           date: data.date.toISOString(),
           owner_id: user?.id,
           status: 'pending',
-        });
+        })
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (expenseError) throw expenseError;
+      
+      // Create approval records based on approval rules
+      if (approvalRules && approvalRules.length > 0) {
+        // Get users with the required roles
+        for (const rule of approvalRules) {
+          // Find users with this role in the company
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('company_id')
+            .eq('id', user?.id)
+            .single();
+          
+          if (!profile) continue;
+          
+          const { data: usersWithRole } = await supabase
+            .from('user_roles')
+            .select('user_id')
+            .eq('role', rule.approver_role);
+          
+          if (!usersWithRole || usersWithRole.length === 0) continue;
+          
+          // Filter to only users in the same company
+          const { data: companyUsers } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('company_id', profile.company_id)
+            .in('id', usersWithRole.map(u => u.user_id));
+          
+          if (!companyUsers || companyUsers.length === 0) continue;
+          
+          // Create approval record for the first user with this role
+          const { error: approvalError } = await supabase
+            .from('approval_records')
+            .insert({
+              expense_id: expenseData.id,
+              approver_id: companyUsers[0].id,
+              approver_role: rule.approver_role,
+              sequence_order: rule.sequence_order,
+              status: 'pending',
+            });
+          
+          if (approvalError) {
+            console.error('Failed to create approval record:', approvalError);
+          }
+        }
+      }
     },
     onSuccess: () => {
       toast.success("Expense submitted successfully!");
       form.reset({
         amount: "",
-        currency: "USD",
+        currency: companyData?.currency || "USD",
         description: "",
       });
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
@@ -80,6 +206,71 @@ export default function SubmitExpense() {
       });
     },
   });
+
+  const handleScanReceipt = async () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    setIsScanning(true);
+    try {
+      // Convert image to base64
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = reader.result as string;
+        
+        // Call OCR edge function
+        const { data, error } = await supabase.functions.invoke('scan-receipt', {
+          body: { imageBase64: base64String }
+        });
+
+        if (error) {
+          if (error.message.includes('429') || error.message.includes('Rate limit')) {
+            toast.error('Rate limit exceeded. Please try again later.');
+          } else if (error.message.includes('402') || error.message.includes('Payment required')) {
+            toast.error('AI credits required. Please add credits to your workspace.');
+          } else {
+            toast.error('Failed to scan receipt', { description: error.message });
+          }
+          return;
+        }
+
+        if (data) {
+          // Auto-fill form with extracted data
+          if (data.amount) {
+            form.setValue('amount', data.amount.toString());
+          }
+          if (data.date) {
+            form.setValue('date', new Date(data.date));
+          }
+          if (data.currency) {
+            form.setValue('currency', data.currency);
+          }
+          toast.success('Receipt scanned successfully!');
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      toast.error('Failed to scan receipt', {
+        description: error.message,
+      });
+    } finally {
+      setIsScanning(false);
+      // Clear file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
 
   const onSubmit = async (data: ExpenseFormValues) => {
     setIsSubmitting(true);
@@ -100,8 +291,40 @@ export default function SubmitExpense() {
 
         <Card>
           <CardHeader>
-            <CardTitle>New Expense Form</CardTitle>
-            <CardDescription>Fill out the details for your expense</CardDescription>
+            <div className="flex justify-between items-start">
+              <div>
+                <CardTitle>New Expense Form</CardTitle>
+                <CardDescription>Fill out the details for your expense</CardDescription>
+              </div>
+              <div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleScanReceipt}
+                  disabled={isScanning}
+                >
+                  {isScanning ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Scanning...
+                    </>
+                  ) : (
+                    <>
+                      <ScanLine className="mr-2 h-4 w-4" />
+                      Scan Receipt
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <Form {...form}>
