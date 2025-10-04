@@ -75,7 +75,7 @@ export default function AdminDashboard() {
     enabled: employeeIds.length > 0,
   });
 
-  // Expenses for company (limit for analytics + table)
+  // Expenses for company (limit for analytics + table) - with real-time polling
   const monthStart = useMemo(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d.toISOString(); }, []);
 
   const { data: expenses = [] } = useQuery({
@@ -93,6 +93,24 @@ export default function AdminDashboard() {
       return (data ?? []) as Expense[];
     },
     enabled: employeeIds.length > 0,
+    refetchInterval: 20000, // Poll every 20 seconds
+  });
+
+  // Pending approvals for admin
+  const { data: pendingApprovals = [] } = useQuery({
+    queryKey: ['admin-approvals', user?.id, employeeIds.join(',')],
+    queryFn: async () => {
+      if (!user?.id || employeeIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from('approvals')
+        .select('id, expense_id, decision, comment')
+        .eq('approver_id', user.id)
+        .eq('decision', 'pending');
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!user?.id && employeeIds.length > 0,
+    refetchInterval: 15000, // Poll every 15 seconds
   });
 
   // Approval Rules
@@ -140,6 +158,47 @@ export default function AdminDashboard() {
     onError: () => toast.error('Failed to update rule'),
   });
 
+  const approveExpenseMutation = useMutation({
+    mutationFn: async ({ id, status, comments }: { id: string; status: 'approved'|'rejected'; comments?: string }) => {
+      const { data: approval, error: approvalError } = await supabase
+        .from('approvals')
+        .select('expense_id')
+        .eq('id', id)
+        .single();
+      
+      if (approvalError) throw approvalError;
+
+      const { error } = await supabase
+        .from('approvals')
+        .update({ decision: status, comment: comments, decided_at: new Date().toISOString() })
+        .eq('id', id);
+      
+      if (error) throw error;
+
+      const { error: expenseError } = await supabase
+        .from('expenses')
+        .update({ status })
+        .eq('id', approval.expense_id);
+      
+      if (expenseError) throw expenseError;
+
+      const { error: otherApprovalsError } = await supabase
+        .from('approvals')
+        .update({ decision: status === 'approved' ? 'approved' : 'rejected' })
+        .eq('expense_id', approval.expense_id)
+        .eq('decision', 'pending')
+        .neq('id', id);
+      
+      if (otherApprovalsError) console.error('Failed to update other approvals:', otherApprovalsError);
+    },
+    onSuccess: () => { 
+      qc.invalidateQueries({ queryKey: ['admin-approvals'] });
+      qc.invalidateQueries({ queryKey: ['expenses-company'] });
+      toast.success('Decision saved successfully'); 
+    },
+    onError: () => toast.error('Failed to save decision'),
+  });
+
   // Derived
   const roleMap = useMemo(() => Object.fromEntries(roles.map(r => [r.user_id, r.role])), [roles]);
   const managerMap = useMemo(() => Object.fromEntries(roles.map(r => [r.user_id, r.manager_id])), [roles]);
@@ -155,6 +214,21 @@ export default function AdminDashboard() {
     expenses.forEach(e => { map[e.owner_id] = (map[e.owner_id] || 0) + Number(e.amount || 0); });
     return map;
   }, [expenses]);
+
+  const spendByManager = useMemo(() => {
+    const map: Record<string, { manager: string; total: number }> = {};
+    roles.forEach(r => {
+      if (r.manager_id) {
+        const spent = spendByUser[r.user_id] || 0;
+        if (!map[r.manager_id]) {
+          const mgr = employees.find(e => e.id === r.manager_id);
+          map[r.manager_id] = { manager: mgr?.name || r.manager_id, total: 0 };
+        }
+        map[r.manager_id].total += spent;
+      }
+    });
+    return Object.values(map).sort((a, b) => b.total - a.total);
+  }, [spendByUser, roles, employees]);
 
   const monthlyTotals = useMemo(() => {
     const map: Record<string, number> = {};
@@ -201,6 +275,44 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Pending Approval Requests */}
+        {pendingApprovals.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-xl font-semibold">Pending Approval Requests</h2>
+            <Card>
+              <CardContent className="pt-6">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Expense</TableHead>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pendingApprovals.map((a: any) => {
+                      const expense = expenses.find(e => e.id === a.expense_id);
+                      const emp = employees.find(t => t.id === expense?.owner_id);
+                      return (
+                        <TableRow key={a.id}>
+                          <TableCell>{expense ? `${expense.currency} ${Number(expense.amount||0).toFixed(2)}` : a.expense_id}</TableCell>
+                          <TableCell>{emp?.name ?? expense?.owner_id ?? '—'}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={() => approveExpenseMutation.mutate({ id: a.id, status: 'approved' })}>Approve</Button>
+                              <Button size="sm" variant="destructive" onClick={() => approveExpenseMutation.mutate({ id: a.id, status: 'rejected' })}>Reject</Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         {/* All Employees & Managers */}
         <section>
@@ -260,7 +372,7 @@ export default function AdminDashboard() {
 
         {/* Expense Analytics */}
         <section className="space-y-4">
-          <h2 className="text-xl font-semibold">Expense Analytics</h2>
+          <h2 className="text-xl font-semibold">Company Expenses Overview</h2>
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader><CardTitle>Monthly Totals</CardTitle></CardHeader>
@@ -277,12 +389,12 @@ export default function AdminDashboard() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Top Spenders</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Manager Team Spending</CardTitle></CardHeader>
               <CardContent className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={Object.entries(spendByUser).map(([uid,total]) => ({ name: employees.find(e=>e.id===uid)?.name ?? uid, total }))}>
+                  <BarChart data={spendByManager}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" hide={false} interval={0} angle={-20} textAnchor="end" height={60} />
+                    <XAxis dataKey="manager" angle={-20} textAnchor="end" height={60} />
                     <YAxis />
                     <Tooltip />
                     <Bar dataKey="total" fill="#82ca9d" />

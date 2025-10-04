@@ -76,7 +76,7 @@ export default function EmployeeDashboard() {
     enabled: !!profile?.company_id,
   });
 
-  // Fetch my expenses
+  // Fetch my expenses - with real-time polling
   const { data: expenses = [] } = useQuery({
     queryKey: ['expenses', user?.id],
     queryFn: async () => {
@@ -90,6 +90,7 @@ export default function EmployeeDashboard() {
       return data as Expense[];
     },
     enabled: !!user?.id,
+    refetchInterval: 20000, // Poll every 20 seconds
   });
 
   // Submit expense mutation

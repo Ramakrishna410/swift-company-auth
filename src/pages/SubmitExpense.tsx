@@ -146,48 +146,57 @@ export default function SubmitExpense() {
 
       if (expenseError) throw expenseError;
       
-      // Create approval records based on approval rules
-      if (approvalRules && approvalRules.length > 0) {
-        // Get users with the required roles
-        for (const rule of approvalRules) {
-          // Find users with this role in the company
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('company_id')
-            .eq('id', user?.id)
-            .single();
-          
-          if (!profile) continue;
-          
-          const { data: usersWithRole } = await supabase
-            .from('user_roles')
-            .select('user_id')
-            .eq('role', rule.approver_role);
-          
-          if (!usersWithRole || usersWithRole.length === 0) continue;
-          
-          // Filter to only users in the same company
-          const { data: companyUsers } = await supabase
+      // Create approval records for BOTH Manager AND Admin
+      // Get the user's profile and company
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user?.id)
+        .single();
+      
+      if (profile) {
+        // Get the employee's manager from user_roles
+        const { data: employeeRole } = await supabase
+          .from('user_roles')
+          .select('manager_id')
+          .eq('user_id', user?.id)
+          .single();
+        
+        // Get all admins in the company
+        const { data: adminRoles } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .eq('role', 'admin');
+        
+        if (adminRoles) {
+          // Filter admins to same company
+          const { data: companyAdmins } = await supabase
             .from('profiles')
             .select('id')
             .eq('company_id', profile.company_id)
-            .in('id', usersWithRole.map(u => u.user_id));
+            .in('id', adminRoles.map(r => r.user_id));
           
-          if (!companyUsers || companyUsers.length === 0) continue;
-          
-          // Create approval record for the first user with this role
-          const { error: approvalError } = await supabase
-            .from('approvals')
-            .insert({
-              expense_id: expenseData.id,
-              approver_id: companyUsers[0].id,
-              decision: 'pending',
-              sequence_order: rule.sequence_order,
-            });
-          
-          if (approvalError) {
-            console.error('Failed to create approval record:', approvalError);
+          // Create approval records for admins
+          if (companyAdmins && companyAdmins.length > 0) {
+            for (const admin of companyAdmins) {
+              await supabase.from('approvals').insert({
+                expense_id: expenseData.id,
+                approver_id: admin.id,
+                decision: 'pending',
+                sequence_order: 2,
+              });
+            }
           }
+        }
+        
+        // Create approval record for manager if assigned
+        if (employeeRole?.manager_id) {
+          await supabase.from('approvals').insert({
+            expense_id: expenseData.id,
+            approver_id: employeeRole.manager_id,
+            decision: 'pending',
+            sequence_order: 1,
+          });
         }
       }
     },

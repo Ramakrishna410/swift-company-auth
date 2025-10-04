@@ -84,7 +84,7 @@ export default function ManagerDashboard() {
     enabled: teamIds.length > 0 && !!companyId,
   });
 
-  // Team expenses
+  // Team expenses - with real-time polling
   const { data: teamExpenses = [] } = useQuery({
     queryKey: ['team-expenses', teamIds.join(','), statusFilter],
     queryFn: async () => {
@@ -96,9 +96,10 @@ export default function ManagerDashboard() {
       return (data ?? []) as Expense[];
     },
     enabled: teamIds.length > 0,
+    refetchInterval: 20000, // Poll every 20 seconds
   });
 
-  // Pending approvals assigned to current manager
+  // Pending approvals assigned to current manager - with real-time polling
   const { data: pendingApprovals = [] } = useQuery({
     queryKey: ['manager-approvals', user?.id, teamIds.join(',')],
     queryFn: async () => {
@@ -112,14 +113,54 @@ export default function ManagerDashboard() {
       return (data ?? []) as Approval[];
     },
     enabled: !!user?.id && teamIds.length > 0,
+    refetchInterval: 15000, // Poll every 15 seconds
   });
 
   const approveMutation = useMutation({
     mutationFn: async ({ id, status, comments }: { id: string; status: 'approved'|'rejected'; comments?: string }) => {
-      const { error } = await supabase.from('approvals').update({ decision: status, comment: comments, decided_at: new Date().toISOString() }).eq('id', id);
+      // Get the approval record to find the expense
+      const { data: approval, error: approvalError } = await supabase
+        .from('approvals')
+        .select('expense_id')
+        .eq('id', id)
+        .single();
+      
+      if (approvalError) throw approvalError;
+
+      // Update this approval record
+      const { error } = await supabase
+        .from('approvals')
+        .update({ decision: status, comment: comments, decided_at: new Date().toISOString() })
+        .eq('id', id);
+      
       if (error) throw error;
+
+      // Update the expense status
+      const { error: expenseError } = await supabase
+        .from('expenses')
+        .update({ status })
+        .eq('id', approval.expense_id);
+      
+      if (expenseError) throw expenseError;
+
+      // Mark all other pending approvals for this expense as obsolete
+      const { error: otherApprovalsError } = await supabase
+        .from('approvals')
+        .update({ decision: status === 'approved' ? 'approved' : 'rejected' })
+        .eq('expense_id', approval.expense_id)
+        .eq('decision', 'pending')
+        .neq('id', id);
+      
+      if (otherApprovalsError) console.error('Failed to update other approvals:', otherApprovalsError);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['manager-approvals'] }); toast.success('Decision saved'); setApproveDialog({ open: false, id: null, action: 'approve' }); setApprovalComment(''); },
+    onSuccess: () => { 
+      qc.invalidateQueries({ queryKey: ['manager-approvals'] });
+      qc.invalidateQueries({ queryKey: ['team-expenses'] });
+      qc.invalidateQueries({ queryKey: ['expenses'] });
+      toast.success('Decision saved successfully'); 
+      setApproveDialog({ open: false, id: null, action: 'approve' }); 
+      setApprovalComment(''); 
+    },
     onError: () => toast.error('Failed to save decision'),
   });
 
@@ -172,6 +213,40 @@ export default function ManagerDashboard() {
                       <TableCell>{pendingApprovalsByEmployee[emp.id] || 0}</TableCell>
                     </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Team Usage Analytics */}
+        <section className="space-y-3">
+          <h2 className="text-xl font-semibold">Team Usage Analytics</h2>
+          <Card>
+            <CardContent className="pt-6">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Employee</TableHead>
+                    <TableHead>Total Spent</TableHead>
+                    <TableHead>Number of Expenses</TableHead>
+                    <TableHead>Latest Expense</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {team.map(emp => {
+                    const empExpenses = teamExpenses.filter(e => e.owner_id === emp.id);
+                    const totalSpent = empExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+                    const latestExpense = empExpenses[0];
+                    return (
+                      <TableRow key={emp.id}>
+                        <TableCell className="font-medium">{emp.name}</TableCell>
+                        <TableCell>${totalSpent.toFixed(2)}</TableCell>
+                        <TableCell>{empExpenses.length}</TableCell>
+                        <TableCell>{latestExpense ? new Date(latestExpense.date).toLocaleDateString() : '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
