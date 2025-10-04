@@ -7,16 +7,16 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, employeeId, userName, role } = useAuth();
 
-  // Fetch user profile and role
+  // Fetch user profile (kept for company_id)
   const { data: profile } = useQuery({
     queryKey: ['profile', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
       const { data } = await supabase
         .from('profiles')
-        .select('name, company_id')
+        .select('company_id')
         .eq('id', user.id)
         .single();
       return data;
@@ -39,22 +39,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     enabled: !!profile?.company_id,
   });
 
-  const { data: userRole } = useQuery({
-    queryKey: ['userRole', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return null;
-      const { data } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .order('role')
-        .limit(1)
-        .single();
-      return data?.role || 'employee';
-    },
-    enabled: !!user?.id,
-  });
-
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
@@ -72,8 +56,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-4">
               <div className="text-right">
-                <p className="text-sm font-medium">{profile?.name || user?.email}</p>
-                <p className="text-xs text-muted-foreground capitalize">{userRole || 'employee'}</p>
+                <p className="text-sm font-medium">
+                  {userName || user?.email}
+                  {employeeId && <span className="text-muted-foreground"> ({employeeId})</span>}
+                </p>
+                <p className="text-xs text-muted-foreground capitalize">{role || 'employee'}</p>
               </div>
               <Button
                 variant="ghost"

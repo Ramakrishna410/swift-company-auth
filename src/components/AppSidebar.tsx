@@ -1,6 +1,6 @@
 import { FileText, CheckSquare, Users, DollarSign, Settings, Receipt } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Sidebar,
   SidebarContent,
@@ -13,45 +13,43 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-type UserRole = "Admin" | "Manager" | "Employee";
+type UserRole = "admin" | "manager" | "employee";
 
 const roleMenuItems = {
-  Employee: [
+  employee: [
     { title: "Submit Expense", url: "/submit-expense", icon: Receipt },
     { title: "My Expenses", url: "/my-expenses", icon: FileText },
   ],
-  Manager: [
+  manager: [
+    { title: "Submit Expense", url: "/submit-expense", icon: Receipt },
+    { title: "My Expenses", url: "/my-expenses", icon: FileText },
     { title: "Pending Approvals", url: "/pending-approvals", icon: CheckSquare },
     { title: "Team Expenses", url: "/team-expenses", icon: DollarSign },
   ],
-  Admin: [
+  admin: [
     { title: "Manage Users", url: "/manage-users", icon: Users },
     { title: "All Expenses", url: "/all-expenses", icon: FileText },
     { title: "Approval Rules", url: "/approval-rules", icon: Settings },
+    { title: "Submit Expense", url: "/submit-expense", icon: Receipt },
+    { title: "My Expenses", url: "/my-expenses", icon: FileText },
   ],
 };
 
 export function AppSidebar() {
   const { open } = useSidebar();
   const location = useLocation();
-  const [role, setRole] = useState<UserRole>("Employee");
-
-  useEffect(() => {
-    const storedRole = localStorage.getItem("userRole") as UserRole;
-    if (storedRole && ["Admin", "Manager", "Employee"].includes(storedRole)) {
-      setRole(storedRole);
-    }
-  }, []);
+  const { role } = useAuth();
 
   const currentPath = location.pathname;
-  const items = roleMenuItems[role] || roleMenuItems.Employee;
+  const items = roleMenuItems[role || 'employee'] || roleMenuItems.employee;
+  const roleLabel = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Employee';
 
   return (
     <Sidebar collapsible="icon">
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="text-sm font-semibold">
-            {open && `${role} Dashboard`}
+            {open && `${roleLabel} Dashboard`}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>

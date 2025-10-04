@@ -389,7 +389,6 @@ export default function ManageUsers() {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
-                      <TableHead>Employee ID</TableHead>
                       <TableHead>Current Role</TableHead>
                       <TableHead>Manager</TableHead>
                       <TableHead className="text-right">Change Role</TableHead>
@@ -399,12 +398,14 @@ export default function ManageUsers() {
                   <TableBody>
                     {users.map((userItem: any) => (
                       <TableRow key={userItem.id}>
-                        <TableCell className="font-medium">{userItem.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {userItem.name}
+                          {userItem.employee_id && (
+                            <span className="text-muted-foreground"> ({userItem.employee_id})</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {userItem.email}
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {userItem.employee_id}
                         </TableCell>
                         <TableCell>
                           <Badge variant={getRoleColor(userItem.role)} className="capitalize">

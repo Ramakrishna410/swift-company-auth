@@ -11,6 +11,9 @@ interface AuthContextType {
   signUp: (email: string, password: string, name: string, companyName: string, country: string, role: 'admin' | 'manager' | 'employee') => Promise<void>;
   signOut: () => Promise<void>;
   loading: boolean;
+  role: 'admin' | 'manager' | 'employee' | null;
+  employeeId: string | null;
+  userName: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,6 +22,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<'admin' | 'manager' | 'employee' | null>(null);
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -27,6 +33,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+        
+        // Fetch user role and profile data when authenticated
+        if (session?.user) {
+          setTimeout(() => {
+            fetchUserData(session.user.id);
+          }, 0);
+        } else {
+          setRole(null);
+          setEmployeeId(null);
+          setUserName(null);
+        }
+        
         setLoading(false);
       }
     );
@@ -35,14 +53,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        fetchUserData(session.user.id);
+      }
+      
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
+  const fetchUserData = async (userId: string) => {
+    try {
+      // Fetch role
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .single();
+      
+      if (roleData) {
+        setRole(roleData.role);
+      }
+
+      // Fetch profile
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('employee_id, name')
+        .eq('id', userId)
+        .single();
+      
+      if (profileData) {
+        setEmployeeId(profileData.employee_id);
+        setUserName(profileData.name);
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  };
+
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -51,8 +103,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw error;
     }
     
+    if (!data.user) {
+      throw new Error('Login failed');
+    }
+    
+    // Fetch user role to determine redirect
+    const { data: roleData } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', data.user.id)
+      .single();
+    
     toast.success('Signed in successfully!');
-    navigate('/');
+    
+    // Redirect based on role
+    if (roleData?.role === 'admin') {
+      navigate('/');
+    } else if (roleData?.role === 'manager') {
+      navigate('/pending-approvals');
+    } else {
+      navigate('/submit-expense');
+    }
   };
 
   const signUp = async (
@@ -180,7 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, signIn, signUp, signOut, loading }}>
+    <AuthContext.Provider value={{ user, session, signIn, signUp, signOut, loading, role, employeeId, userName }}>
       {children}
     </AuthContext.Provider>
   );

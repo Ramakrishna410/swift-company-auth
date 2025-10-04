@@ -46,13 +46,13 @@ export default function TeamExpenses() {
       // Get all users in the same company
       const { data: companyProfiles } = await supabase
         .from('profiles')
-        .select('id, name')
+        .select('id, name, employee_id')
         .eq('company_id', profile.company_id);
       
       if (!companyProfiles) return [];
       
       const userIds = companyProfiles.map(p => p.id);
-      const profileMap = new Map(companyProfiles.map(p => [p.id, p.name]));
+      const profileMap = new Map(companyProfiles.map(p => [p.id, { name: p.name, employee_id: p.employee_id }]));
       
       // Fetch expenses for all company users
       const { data, error } = await supabase
@@ -63,10 +63,14 @@ export default function TeamExpenses() {
       
       if (error) throw error;
       
-      return (data || []).map(expense => ({
-        ...expense,
-        employee_name: profileMap.get(expense.owner_id) || 'Unknown'
-      }));
+      return (data || []).map(expense => {
+        const profile = profileMap.get(expense.owner_id) || { name: 'Unknown', employee_id: null };
+        return {
+          ...expense,
+          employee_name: profile.name,
+          employee_id: profile.employee_id,
+        };
+      });
     },
     enabled: !!profile?.company_id,
   });
@@ -126,7 +130,12 @@ export default function TeamExpenses() {
                   <TableBody>
                     {expenses.map((expense: any) => (
                       <TableRow key={expense.id}>
-                        <TableCell className="font-medium">{expense.employee_name}</TableCell>
+                        <TableCell className="font-medium">
+                          {expense.employee_name}
+                          {expense.employee_id && (
+                            <span className="text-muted-foreground"> ({expense.employee_id})</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {format(new Date(expense.date), "MMM dd, yyyy")}
                         </TableCell>

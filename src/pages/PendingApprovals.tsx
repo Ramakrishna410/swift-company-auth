@@ -50,14 +50,14 @@ export default function PendingApprovals() {
       
       if (!approvalRecords || approvalRecords.length === 0) return [];
 
-      // Get employee names
+      // Get employee names and employee IDs
       const ownerIds = [...new Set(approvalRecords.map(r => r.expenses.owner_id))];
       const { data: profilesData } = await supabase
         .from('profiles')
-        .select('id, name')
+        .select('id, name, employee_id')
         .in('id', ownerIds);
 
-      const profileMap = new Map(profilesData?.map(p => [p.id, p.name]) || []);
+      const profileMap = new Map(profilesData?.map(p => [p.id, { name: p.name, employee_id: p.employee_id }]) || []);
 
       // Check if previous approvals in sequence are complete
       const enrichedRecords = await Promise.all(
@@ -71,10 +71,13 @@ export default function PendingApprovals() {
           
           const allPreviousApproved = previousApprovals?.every(a => a.status === 'approved') ?? true;
           
+          const profile = profileMap.get(record.expenses.owner_id) || { name: 'Unknown', employee_id: null };
+          
           return {
             ...record,
             expense: record.expenses,
-            employee: profileMap.get(record.expenses.owner_id) || 'Unknown',
+            employee: profile.name,
+            employee_id: profile.employee_id,
             canApprove: allPreviousApproved,
           };
         })
@@ -243,7 +246,12 @@ export default function PendingApprovals() {
                   <TableBody>
                     {expenses.map((record: any) => (
                       <TableRow key={record.id}>
-                        <TableCell className="font-medium">{record.employee}</TableCell>
+                        <TableCell className="font-medium">
+                          {record.employee}
+                          {record.employee_id && (
+                            <span className="text-muted-foreground"> ({record.employee_id})</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {record.expense.currency} {Number(record.expense.amount).toLocaleString('en-US', {
                             minimumFractionDigits: 2,
