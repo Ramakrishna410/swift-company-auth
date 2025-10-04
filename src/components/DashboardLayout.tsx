@@ -68,6 +68,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 onClick={signOut}
                 title="Logout"
                 aria-label="Logout"
+                className="hover:bg-destructive/10 hover:text-destructive"
               >
                 <LogOut className="h-5 w-5" />
               </Button>

@@ -1,215 +1,333 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
-import { Plus, Receipt, Eye } from "lucide-react";
+import { useState, useEffect } from 'react';
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/useAuth';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+import { Plus, Receipt, TrendingUp, Clock, CheckCircle, XCircle, Scan } from 'lucide-react';
 
 interface Expense {
   id: string;
-  employee_id: string;
-  employee_name: string;
   amount: number;
+  converted_amount: number | null;
   currency: string;
+  category: string | null;
   description: string;
   date: string;
-  status: "pending" | "approved" | "rejected";
-  receipt_url?: string;
+  status: string;
+  receipt_url: string | null;
 }
 
-const EmployeeDashboard = () => {
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+export default function EmployeeDashboard() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
-  const [currentEmployeeId] = useState("EMP-001"); // Mock logged-in employee
-  const [currentEmployeeName] = useState("John Doe");
-  const { toast } = useToast();
-
   const [formData, setFormData] = useState({
-    amount: "",
-    currency: "USD",
-    description: "",
+    amount: '',
+    currency: 'USD',
+    category: 'Travel',
+    description: '',
     date: new Date().toISOString().split('T')[0],
     receipt: null as File | null,
   });
 
   useEffect(() => {
-    const storedExpenses = localStorage.getItem("expenses");
-    if (storedExpenses) {
-      setExpenses(JSON.parse(storedExpenses));
-    } else {
-      // Initialize with mock data
-      const mockExpenses: Expense[] = [
-        {
-          id: "1",
-          employee_id: "EMP-001",
-          employee_name: "John Doe",
-          amount: 150.00,
-          currency: "USD",
-          description: "Client lunch meeting",
-          date: "2025-10-01",
-          status: "pending",
-        },
-        {
-          id: "3",
-          employee_id: "EMP-001",
-          employee_name: "John Doe",
-          amount: 200.00,
-          currency: "USD",
-          description: "Travel expenses",
-          date: "2025-10-03",
-          status: "rejected",
-        },
-      ];
-      setExpenses(mockExpenses);
-      localStorage.setItem("expenses", JSON.stringify(mockExpenses));
-    }
+    document.title = 'Employee Dashboard — Expense Manager';
   }, []);
 
-  const myExpenses = expenses.filter(exp => exp.employee_id === currentEmployeeId);
+  // Fetch user profile
+  const { data: profile } = useQuery({
+    queryKey: ['profile', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  // Fetch company currency
+  const { data: company } = useQuery({
+    queryKey: ['company', profile?.company_id],
+    queryFn: async () => {
+      if (!profile?.company_id) return null;
+      const { data, error } = await supabase
+        .from('companies')
+        .select('currency')
+        .eq('id', profile.company_id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!profile?.company_id,
+  });
+
+  // Fetch my expenses
+  const { data: expenses = [] } = useQuery({
+    queryKey: ['expenses', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data, error } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('owner_id', user.id)
+        .order('date', { ascending: false });
+      if (error) throw error;
+      return data as Expense[];
+    },
+    enabled: !!user?.id,
+  });
+
+  // Submit expense mutation
+  const submitExpenseMutation = useMutation({
+    mutationFn: async (data: typeof formData) => {
+      if (!user?.id || !profile?.company_id) throw new Error('User not found');
+
+      let converted_amount = parseFloat(data.amount);
+      if (data.currency !== company?.currency) {
+        // Fetch exchange rate
+        try {
+          const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${company?.currency}`);
+          const rates = await response.json();
+          converted_amount = parseFloat(data.amount) * rates.rates[data.currency];
+        } catch {
+          toast.error('Could not fetch exchange rate, using original amount');
+        }
+      }
+
+      const { error } = await supabase.from('expenses').insert({
+        owner_id: user.id,
+        amount: parseFloat(data.amount),
+        converted_amount,
+        currency: data.currency,
+        category: data.category,
+        description: data.description,
+        date: data.date,
+        status: 'pending',
+      });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['expenses'] });
+      toast.success('Expense submitted successfully!');
+      setShowForm(false);
+      setFormData({
+        amount: '',
+        currency: 'USD',
+        category: 'Travel',
+        description: '',
+        date: new Date().toISOString().split('T')[0],
+        receipt: null,
+      });
+    },
+    onError: () => toast.error('Failed to submit expense'),
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
-    const newExpense: Expense = {
-      id: Date.now().toString(),
-      employee_id: currentEmployeeId,
-      employee_name: currentEmployeeName,
-      amount: parseFloat(formData.amount),
-      currency: formData.currency,
-      description: formData.description,
-      date: formData.date,
-      status: "pending",
-      receipt_url: formData.receipt ? URL.createObjectURL(formData.receipt) : undefined,
-    };
-
-    const updatedExpenses = [...expenses, newExpense];
-    setExpenses(updatedExpenses);
-    localStorage.setItem("expenses", JSON.stringify(updatedExpenses));
-
-    toast({
-      title: "Expense Submitted",
-      description: "Your expense has been submitted for approval.",
-    });
-
-    setFormData({
-      amount: "",
-      currency: "USD",
-      description: "",
-      date: new Date().toISOString().split('T')[0],
-      receipt: null,
-    });
-    setShowForm(false);
+    submitExpenseMutation.mutate(formData);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFormData({ ...formData, receipt: e.target.files[0] });
-    }
-  };
-
-  const getStatusBadgeVariant = (status: string) => {
-    switch (status) {
-      case "pending": return "outline";
-      case "approved": return "default";
-      case "rejected": return "destructive";
-      default: return "secondary";
-    }
-  };
+  const totalSubmitted = expenses.length;
+  const totalApproved = expenses.filter((e) => e.status === 'approved').length;
+  const totalPending = expenses.filter((e) => e.status === 'pending').length;
+  const totalRejected = expenses.filter((e) => e.status === 'rejected').length;
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <DashboardLayout>
+      <div className="space-y-6">
+        {/* Header */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Employee Dashboard</h1>
-            <p className="text-muted-foreground">Manage your expenses</p>
+            <h1 className="text-3xl font-bold">Employee Dashboard</h1>
+            <p className="text-muted-foreground">Submit and track your expenses</p>
           </div>
-          <Button onClick={() => setShowForm(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Submit Expense
-          </Button>
+          <Dialog open={showForm} onOpenChange={setShowForm}>
+            <DialogTrigger asChild>
+              <Button size="lg" className="gap-2">
+                <Plus className="h-5 w-5" />
+                Submit Expense
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Submit New Expense</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="amount">Amount</Label>
+                  <Input
+                    id="amount"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={formData.amount}
+                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="currency">Currency</Label>
+                  <Select value={formData.currency} onValueChange={(v) => setFormData({ ...formData, currency: v })}>
+                    <SelectTrigger id="currency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="EUR">EUR</SelectItem>
+                      <SelectItem value="GBP">GBP</SelectItem>
+                      <SelectItem value="INR">INR</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="category">Category</Label>
+                  <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
+                    <SelectTrigger id="category">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Travel">Travel</SelectItem>
+                      <SelectItem value="Food">Food</SelectItem>
+                      <SelectItem value="Office">Office Supplies</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="date">Date</Label>
+                  <Input
+                    id="date"
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    placeholder="Describe the expense..."
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="receipt">Receipt (Optional)</Label>
+                  <Input
+                    id="receipt"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setFormData({ ...formData, receipt: e.target.files?.[0] || null })}
+                  />
+                </div>
+                <Button type="submit" className="w-full">Submit Expense</Button>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
-        {/* Expense Summary */}
-        <div className="grid gap-4 md:grid-cols-3">
+        {/* Summary Cards */}
+        <div className="grid gap-4 md:grid-cols-4">
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Total Submitted</CardTitle>
+              <Receipt className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                ${myExpenses.reduce((sum, exp) => sum + exp.amount, 0).toFixed(2)}
-              </div>
+              <div className="text-2xl font-bold">{totalSubmitted}</div>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {myExpenses.filter(exp => exp.status === "pending").length}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Approved</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {myExpenses.filter(exp => exp.status === "approved").length}
-              </div>
+              <div className="text-2xl font-bold">{totalApproved}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              <Clock className="h-4 w-4 text-yellow-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalPending}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+              <XCircle className="h-4 w-4 text-red-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalRejected}</div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Expenses List */}
+        {/* My Expenses */}
         <Card>
           <CardHeader>
             <CardTitle>My Expenses</CardTitle>
           </CardHeader>
           <CardContent>
-            {myExpenses.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">No expenses yet. Submit your first expense!</p>
+            {expenses.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Receipt className="mx-auto h-12 w-12 mb-4 opacity-50" />
+                <p>No expenses yet. Submit your first expense!</p>
+              </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
+                    <TableHead>Category</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Receipt</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {myExpenses.map(expense => (
+                  {expenses.map((expense) => (
                     <TableRow key={expense.id}>
                       <TableCell>{new Date(expense.date).toLocaleDateString()}</TableCell>
+                      <TableCell>{expense.category || '—'}</TableCell>
                       <TableCell>{expense.description}</TableCell>
-                      <TableCell>{expense.currency} {expense.amount.toFixed(2)}</TableCell>
                       <TableCell>
-                        <Badge variant={getStatusBadgeVariant(expense.status)} className="capitalize">
-                          {expense.status}
-                        </Badge>
+                        {expense.currency} {expense.amount.toFixed(2)}
                       </TableCell>
                       <TableCell>
-                        {expense.receipt_url && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setReceiptPreview(expense.receipt_url || null)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        )}
+                        <Badge
+                          variant={
+                            expense.status === 'approved'
+                              ? 'default'
+                              : expense.status === 'rejected'
+                              ? 'destructive'
+                              : 'outline'
+                          }
+                          className="capitalize"
+                        >
+                          {expense.status}
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -218,88 +336,7 @@ const EmployeeDashboard = () => {
             )}
           </CardContent>
         </Card>
-
-        {/* Submit Expense Dialog */}
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Submit New Expense</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="date">Date</Label>
-                <Input
-                  id="date"
-                  type="date"
-                  value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="amount">Amount</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="currency">Currency</Label>
-                <Input
-                  id="currency"
-                  value={formData.currency}
-                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  placeholder="Enter expense description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="receipt">Receipt (Optional)</Label>
-                <Input
-                  id="receipt"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                />
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">Submit Expense</Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-
-        {/* Receipt Preview Dialog */}
-        <Dialog open={!!receiptPreview} onOpenChange={() => setReceiptPreview(null)}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Receipt Preview</DialogTitle>
-            </DialogHeader>
-            {receiptPreview && (
-              <img src={receiptPreview} alt="Receipt" className="w-full h-auto" />
-            )}
-          </DialogContent>
-        </Dialog>
       </div>
-    </div>
+    </DashboardLayout>
   );
-};
-
-export default EmployeeDashboard;
+}

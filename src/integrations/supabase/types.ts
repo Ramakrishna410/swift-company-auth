@@ -14,110 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
-      approval_records: {
-        Row: {
-          approved_at: string | null
-          approver_id: string
-          approver_role: Database["public"]["Enums"]["app_role"]
-          comments: string | null
-          created_at: string | null
-          expense_id: string
-          id: string
-          sequence_order: number
-          status: string
-          updated_at: string | null
-        }
-        Insert: {
-          approved_at?: string | null
-          approver_id: string
-          approver_role: Database["public"]["Enums"]["app_role"]
-          comments?: string | null
-          created_at?: string | null
-          expense_id: string
-          id?: string
-          sequence_order: number
-          status?: string
-          updated_at?: string | null
-        }
-        Update: {
-          approved_at?: string | null
-          approver_id?: string
-          approver_role?: Database["public"]["Enums"]["app_role"]
-          comments?: string | null
-          created_at?: string | null
-          expense_id?: string
-          id?: string
-          sequence_order?: number
-          status?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "approval_records_expense_id_fkey"
-            columns: ["expense_id"]
-            isOneToOne: false
-            referencedRelation: "expenses"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       approval_rules: {
         Row: {
           approver_role: Database["public"]["Enums"]["app_role"] | null
           company_id: string
           created_at: string | null
-          hybrid_approver_id: string | null
-          hybrid_approver_role: Database["public"]["Enums"]["app_role"] | null
           hybrid_logic: string | null
-          hybrid_percentage: number | null
           id: string
           is_active: boolean | null
           name: string
-          required_percentage: number | null
           rule_type: string
           sequence_order: number | null
           specific_approver_id: string | null
-          specific_approver_role: Database["public"]["Enums"]["app_role"] | null
+          threshold: number | null
           updated_at: string | null
         }
         Insert: {
           approver_role?: Database["public"]["Enums"]["app_role"] | null
           company_id: string
           created_at?: string | null
-          hybrid_approver_id?: string | null
-          hybrid_approver_role?: Database["public"]["Enums"]["app_role"] | null
           hybrid_logic?: string | null
-          hybrid_percentage?: number | null
           id?: string
           is_active?: boolean | null
           name: string
-          required_percentage?: number | null
           rule_type: string
           sequence_order?: number | null
           specific_approver_id?: string | null
-          specific_approver_role?:
-            | Database["public"]["Enums"]["app_role"]
-            | null
+          threshold?: number | null
           updated_at?: string | null
         }
         Update: {
           approver_role?: Database["public"]["Enums"]["app_role"] | null
           company_id?: string
           created_at?: string | null
-          hybrid_approver_id?: string | null
-          hybrid_approver_role?: Database["public"]["Enums"]["app_role"] | null
           hybrid_logic?: string | null
-          hybrid_percentage?: number | null
           id?: string
           is_active?: boolean | null
           name?: string
-          required_percentage?: number | null
           rule_type?: string
           sequence_order?: number | null
           specific_approver_id?: string | null
-          specific_approver_role?:
-            | Database["public"]["Enums"]["app_role"]
-            | null
+          threshold?: number | null
           updated_at?: string | null
         }
         Relationships: [
@@ -126,6 +63,50 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      approvals: {
+        Row: {
+          approver_id: string
+          comment: string | null
+          created_at: string | null
+          decided_at: string | null
+          decision: string | null
+          expense_id: string
+          id: string
+          sequence_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          approver_id: string
+          comment?: string | null
+          created_at?: string | null
+          decided_at?: string | null
+          decision?: string | null
+          expense_id: string
+          id?: string
+          sequence_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          approver_id?: string
+          comment?: string | null
+          created_at?: string | null
+          decided_at?: string | null
+          decision?: string | null
+          expense_id?: string
+          id?: string
+          sequence_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approvals_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
             referencedColumns: ["id"]
           },
         ]
@@ -160,6 +141,7 @@ export type Database = {
       expenses: {
         Row: {
           amount: number
+          category: string | null
           converted_amount: number | null
           created_at: string | null
           currency: string
@@ -175,6 +157,7 @@ export type Database = {
         }
         Insert: {
           amount: number
+          category?: string | null
           converted_amount?: number | null
           created_at?: string | null
           currency?: string
@@ -190,6 +173,7 @@ export type Database = {
         }
         Update: {
           amount?: number
+          category?: string | null
           converted_amount?: number | null
           created_at?: string | null
           currency?: string

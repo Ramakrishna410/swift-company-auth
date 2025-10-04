@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 interface Profile { id: string; name: string; employee_id: string | null; }
 interface RoleRow { user_id: string; manager_id: string | null; }
 interface Expense { id: string; owner_id: string; amount: number; currency: string; status: string; date: string; description: string; }
-interface Approval { id: string; expense_id: string; status: string; comments: string | null; }
+interface Approval { id: string; expense_id: string; decision: string; comment: string | null; }
 
 export default function ManagerDashboard() {
   const { user } = useAuth();
@@ -84,10 +84,10 @@ export default function ManagerDashboard() {
     queryFn: async () => {
       if (!user?.id || teamIds.length === 0) return [] as Approval[];
       const { data, error } = await supabase
-        .from('approval_records')
-        .select('id, expense_id, status, comments')
+        .from('approvals')
+        .select('id, expense_id, decision, comment')
         .eq('approver_id', user.id)
-        .eq('status', 'pending');
+        .eq('decision', 'pending');
       if (error) throw error;
       return (data ?? []) as Approval[];
     },
@@ -96,7 +96,7 @@ export default function ManagerDashboard() {
 
   const approveMutation = useMutation({
     mutationFn: async ({ id, status, comments }: { id: string; status: 'approved'|'rejected'; comments?: string }) => {
-      const { error } = await supabase.from('approval_records').update({ status, comments, approved_at: new Date().toISOString() }).eq('id', id);
+      const { error } = await supabase.from('approvals').update({ decision: status, comment: comments, decided_at: new Date().toISOString() }).eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['manager-approvals'] }); toast.success('Decision saved'); setApproveDialog({ open: false, id: null, action: 'approve' }); setApprovalComment(''); },

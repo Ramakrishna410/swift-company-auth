@@ -40,10 +40,10 @@ export default function PendingApprovals() {
       
       // Get approval records where user is the approver
       const { data: approvalRecords, error: approvalsError } = await supabase
-        .from('approval_records')
+        .from('approvals')
         .select('*, expenses(*)')
         .eq('approver_id', user.id)
-        .eq('status', 'pending')
+        .eq('decision', 'pending')
         .order('created_at', { ascending: false });
 
       if (approvalsError) throw approvalsError;
@@ -64,12 +64,12 @@ export default function PendingApprovals() {
         approvalRecords.map(async (record) => {
           // Check if all previous approvals are completed
           const { data: previousApprovals } = await supabase
-            .from('approval_records')
-            .select('status')
+            .from('approvals')
+            .select('decision')
             .eq('expense_id', record.expense_id)
             .lt('sequence_order', record.sequence_order);
           
-          const allPreviousApproved = previousApprovals?.every(a => a.status === 'approved') ?? true;
+          const allPreviousApproved = previousApprovals?.every(a => a.decision === 'approved') ?? true;
           
           const profile = profileMap.get(record.expenses.owner_id) || { name: 'Unknown', employee_id: null };
           
@@ -104,11 +104,11 @@ export default function PendingApprovals() {
     }) => {
       // Update approval record
       const { error: updateError } = await supabase
-        .from('approval_records')
+        .from('approvals')
         .update({ 
-          status: action === "approve" ? "approved" : "rejected",
-          comments: comments,
-          approved_at: new Date().toISOString(),
+          decision: action === "approve" ? "approved" : "rejected",
+          comment: comments,
+          decided_at: new Date().toISOString(),
         })
         .eq('id', recordId);
 
@@ -125,11 +125,11 @@ export default function PendingApprovals() {
       } else {
         // If approved, check if this is the last approval
         const { data: allApprovals } = await supabase
-          .from('approval_records')
-          .select('status')
+          .from('approvals')
+          .select('decision')
           .eq('expense_id', expenseId);
         
-        const allApproved = allApprovals?.every(a => a.status === 'approved');
+        const allApproved = allApprovals?.every(a => a.decision === 'approved');
         
         if (allApproved) {
           // All approvals complete, mark expense as approved

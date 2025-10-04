@@ -176,13 +176,12 @@ export default function SubmitExpense() {
           
           // Create approval record for the first user with this role
           const { error: approvalError } = await supabase
-            .from('approval_records')
+            .from('approvals')
             .insert({
               expense_id: expenseData.id,
               approver_id: companyUsers[0].id,
-              approver_role: rule.approver_role,
+              decision: 'pending',
               sequence_order: rule.sequence_order,
-              status: 'pending',
             });
           
           if (approvalError) {
