@@ -16,12 +16,27 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       if (!user?.id) return null;
       const { data } = await supabase
         .from('profiles')
-        .select('name')
+        .select('name, company_id')
         .eq('id', user.id)
         .single();
       return data;
     },
     enabled: !!user?.id,
+  });
+
+  // Fetch company currency
+  const { data: company } = useQuery({
+    queryKey: ['company', profile?.company_id],
+    queryFn: async () => {
+      if (!profile?.company_id) return null;
+      const { data } = await supabase
+        .from('companies')
+        .select('name, currency')
+        .eq('id', profile.company_id)
+        .single();
+      return data;
+    },
+    enabled: !!profile?.company_id,
   });
 
   const { data: userRole } = useQuery({
@@ -49,6 +64,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <SidebarTrigger className="-ml-2" />
             <div className="flex-1">
               <h1 className="text-lg font-semibold">Expense Management System</h1>
+              {company && (
+                <p className="text-xs text-muted-foreground">
+                  {company.name} • Default Currency: {company.currency}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-4">
               <div className="text-right">

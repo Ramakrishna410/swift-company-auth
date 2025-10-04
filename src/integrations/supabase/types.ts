@@ -63,30 +63,61 @@ export type Database = {
       }
       approval_rules: {
         Row: {
-          approver_role: Database["public"]["Enums"]["app_role"]
+          approver_role: Database["public"]["Enums"]["app_role"] | null
           company_id: string
           created_at: string | null
+          hybrid_approver_id: string | null
+          hybrid_approver_role: Database["public"]["Enums"]["app_role"] | null
+          hybrid_logic: string | null
+          hybrid_percentage: number | null
           id: string
+          is_active: boolean | null
           name: string
-          sequence_order: number
+          required_percentage: number | null
+          rule_type: string
+          sequence_order: number | null
+          specific_approver_id: string | null
+          specific_approver_role: Database["public"]["Enums"]["app_role"] | null
           updated_at: string | null
         }
         Insert: {
-          approver_role: Database["public"]["Enums"]["app_role"]
+          approver_role?: Database["public"]["Enums"]["app_role"] | null
           company_id: string
           created_at?: string | null
+          hybrid_approver_id?: string | null
+          hybrid_approver_role?: Database["public"]["Enums"]["app_role"] | null
+          hybrid_logic?: string | null
+          hybrid_percentage?: number | null
           id?: string
+          is_active?: boolean | null
           name: string
-          sequence_order: number
+          required_percentage?: number | null
+          rule_type: string
+          sequence_order?: number | null
+          specific_approver_id?: string | null
+          specific_approver_role?:
+            | Database["public"]["Enums"]["app_role"]
+            | null
           updated_at?: string | null
         }
         Update: {
-          approver_role?: Database["public"]["Enums"]["app_role"]
+          approver_role?: Database["public"]["Enums"]["app_role"] | null
           company_id?: string
           created_at?: string | null
+          hybrid_approver_id?: string | null
+          hybrid_approver_role?: Database["public"]["Enums"]["app_role"] | null
+          hybrid_logic?: string | null
+          hybrid_percentage?: number | null
           id?: string
+          is_active?: boolean | null
           name?: string
-          sequence_order?: number
+          required_percentage?: number | null
+          rule_type?: string
+          sequence_order?: number | null
+          specific_approver_id?: string | null
+          specific_approver_role?:
+            | Database["public"]["Enums"]["app_role"]
+            | null
           updated_at?: string | null
         }
         Relationships: [

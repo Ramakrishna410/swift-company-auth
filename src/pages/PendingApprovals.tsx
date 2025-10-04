@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { getStatusBadgeVariant, getStatusColor } from "@/lib/expenseUtils";
 import {
   Dialog,
   DialogContent,
@@ -269,7 +270,12 @@ export default function PendingApprovals() {
                         </TableCell>
                         <TableCell>
                           {record.canApprove ? (
-                            <Badge variant="secondary">Ready</Badge>
+                            <Badge 
+                              variant={getStatusBadgeVariant('pending')}
+                              className={getStatusColor('pending')}
+                            >
+                              Ready
+                            </Badge>
                           ) : (
                             <Badge variant="outline">Waiting</Badge>
                           )}
