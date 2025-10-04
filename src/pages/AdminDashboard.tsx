@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { Link } from 'react-router-dom';
 
 interface Profile { id: string; name: string; employee_id: string | null; email: string | null; }
 interface RoleRow { user_id: string; role: 'admin' | 'manager' | 'employee'; manager_id: string | null; }
@@ -28,8 +29,8 @@ export default function AdminDashboard() {
     queryKey: ['profile-admin', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      const { data, error } = await supabase.from('profiles').select('id, company_id').eq('id', user.id).single();
-      if (error) throw error;
+      const { data, error } = await supabase.from('profiles').select('id, company_id').eq('id', user.id).maybeSingle();
+      if (error) { console.error('Failed to fetch admin profile', error); return null; }
       return data as { id: string; company_id: string } | null;
     },
     enabled: !!user?.id,
@@ -42,8 +43,8 @@ export default function AdminDashboard() {
     queryKey: ['company', companyId],
     queryFn: async () => {
       if (!companyId) return null;
-      const { data, error } = await supabase.from('companies').select('id, name, currency').eq('id', companyId).single();
-      if (error) throw error;
+      const { data, error } = await supabase.from('companies').select('id, name, currency').eq('id', companyId).maybeSingle();
+      if (error) { console.error('Failed to fetch company', error); return null as any; }
       return data as Company;
     },
     enabled: !!companyId,
@@ -170,6 +171,7 @@ export default function AdminDashboard() {
   const managerMap = useMemo(() => Object.fromEntries(roles.map(r => [r.user_id, r.manager_id])), [roles]);
 
   const totalEmployees = employees.length;
+  const totalManagers = useMemo(() => roles.filter(r => r.role === 'manager').length, [roles]);
   const totalExpensesThisMonth = useMemo(() => {
     const start = new Date(); start.setDate(1); start.setHours(0,0,0,0);
     return expenses.filter(e => new Date(e.date) >= start).reduce((sum, e) => sum + Number(e.amount || 0), 0);
@@ -209,11 +211,16 @@ export default function AdminDashboard() {
     <DashboardLayout>
       <section className="space-y-8">
         {/* Company Summary */}
-        <div>
-          <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
-          <p className="text-muted-foreground">Company-wide overview and controls</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
+            <p className="text-muted-foreground">Company-wide overview and controls</p>
+          </div>
+          <Button asChild>
+            <Link to="/submit-expense">Add Company Expense</Link>
+          </Button>
         </div>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
           <Card>
             <CardHeader><CardTitle>Company</CardTitle></CardHeader>
             <CardContent>
@@ -224,6 +231,10 @@ export default function AdminDashboard() {
           <Card>
             <CardHeader><CardTitle>Total Employees</CardTitle></CardHeader>
             <CardContent><div className="text-2xl font-bold">{totalEmployees}</div></CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Total Managers</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold">{totalManagers}</div></CardContent>
           </Card>
           <Card>
             <CardHeader><CardTitle>Expenses (This Month)</CardTitle></CardHeader>
