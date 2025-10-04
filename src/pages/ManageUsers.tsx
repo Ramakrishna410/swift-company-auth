@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
 export default function ManageUsers() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -36,31 +36,15 @@ export default function ManageUsers() {
     role: 'employee' as 'admin' | 'manager' | 'employee',
   });
 
-  // Check if user is admin
-  const { data: isAdmin, isLoading: checkingRole } = useQuery({
-    queryKey: ['isAdmin', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return false;
-      const { data } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .eq('role', 'admin')
-        .single();
-      return !!data;
-    },
-    enabled: !!user?.id,
-  });
-
   // Redirect if not admin
   useEffect(() => {
-    if (!checkingRole && !isAdmin) {
+    if (role !== 'admin') {
       toast.error("Access Denied", {
         description: "Only Admins can access this page",
       });
       navigate("/");
     }
-  }, [isAdmin, checkingRole, navigate]);
+  }, [role, navigate]);
 
   // Fetch current user's company_id
   const { data: currentUserProfile } = useQuery({
@@ -76,7 +60,7 @@ export default function ManageUsers() {
       if (error) throw error;
       return data;
     },
-    enabled: !!user?.id && !!isAdmin,
+    enabled: !!user?.id && role === 'admin',
   });
 
   // Fetch all users from the same company
@@ -116,7 +100,7 @@ export default function ManageUsers() {
         };
       });
     },
-    enabled: !!isAdmin && !!currentUserProfile?.company_id,
+    enabled: role === 'admin' && !!currentUserProfile?.company_id,
   });
 
   // Update user role mutation
@@ -247,7 +231,7 @@ export default function ManageUsers() {
     u.id !== selectedUserId
   ) || [];
 
-  if (checkingRole || (!isAdmin && !checkingRole)) {
+  if (role !== 'admin') {
     return null;
   }
 

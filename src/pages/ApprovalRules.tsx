@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 
 export default function ApprovalRules() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -38,28 +38,12 @@ export default function ApprovalRules() {
   const [hybridPercentage, setHybridPercentage] = useState("60");
   const [hybridRole, setHybridRole] = useState<string>("");
 
-  // Check if user is admin
-  const { data: isAdmin } = useQuery({
-    queryKey: ['isAdmin', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return false;
-      const { data } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .eq('role', 'admin')
-        .single();
-      return !!data;
-    },
-    enabled: !!user?.id,
-  });
-
   useEffect(() => {
-    if (isAdmin === false) {
+    if (role !== 'admin') {
       toast.error("Access denied. Only admins can manage approval rules.");
       navigate("/");
     }
-  }, [isAdmin, navigate]);
+  }, [role, navigate]);
 
   // Fetch company data
   const { data: companyData } = useQuery({
@@ -82,7 +66,7 @@ export default function ApprovalRules() {
       
       return company;
     },
-    enabled: !!user?.id && !!isAdmin,
+    enabled: !!user?.id && role === 'admin',
   });
 
   // Fetch approval rules
@@ -202,7 +186,7 @@ export default function ApprovalRules() {
     return "Unknown rule type";
   };
 
-  if (isAdmin === false) {
+  if (role !== 'admin') {
     return null;
   }
   return (

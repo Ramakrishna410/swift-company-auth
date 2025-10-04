@@ -20,33 +20,17 @@ import {
 } from "@/components/ui/dialog";
 
 export default function AllExpenses() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const navigate = useNavigate();
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
 
-  // Check if user is admin
-  const { data: isAdmin } = useQuery({
-    queryKey: ['isAdmin', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return false;
-      const { data } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .eq('role', 'admin')
-        .single();
-      return !!data;
-    },
-    enabled: !!user?.id,
-  });
-
   useEffect(() => {
-    if (isAdmin === false) {
+    if (role !== 'admin') {
       toast.error("Access denied. Only admins can view all expenses.");
       navigate("/");
     }
-  }, [isAdmin, navigate]);
+  }, [role, navigate]);
 
   // Fetch user's company
   const { data: profile } = useQuery({
@@ -60,7 +44,7 @@ export default function AllExpenses() {
         .single();
       return data;
     },
-    enabled: !!user?.id && !!isAdmin,
+    enabled: !!user?.id && role === 'admin',
   });
 
   // Fetch all company expenses
@@ -98,7 +82,7 @@ export default function AllExpenses() {
         };
       });
     },
-    enabled: !!profile?.company_id && !!isAdmin,
+    enabled: !!profile?.company_id && role === 'admin',
   });
 
   const handleViewReceipt = (receiptUrl: string) => {
@@ -106,7 +90,7 @@ export default function AllExpenses() {
     setReceiptDialogOpen(true);
   };
 
-  if (isAdmin === false) {
+  if (role !== 'admin') {
     return null;
   }
 

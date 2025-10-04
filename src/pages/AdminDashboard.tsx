@@ -18,7 +18,7 @@ interface Expense { id: string; owner_id: string; amount: number; currency: stri
 interface Rule { id: string; name: string; rule_type: string; sequence_order: number | null; approver_role: 'admin'|'manager'|'employee'|null; is_active: boolean | null; }
 
 export default function AdminDashboard() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const qc = useQueryClient();
 
   useEffect(() => { document.title = 'Admin Dashboard — Expense Manager'; }, []);

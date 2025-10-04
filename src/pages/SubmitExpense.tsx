@@ -99,6 +99,7 @@ export default function SubmitExpense() {
       amount: "",
       currency: companyData?.currency || "USD",
       description: "",
+      date: new Date(),
     },
   });
 
@@ -275,6 +276,13 @@ export default function SubmitExpense() {
     setIsSubmitting(true);
     try {
       await createExpenseMutation.mutateAsync(data);
+      // Reset form after successful submission
+      form.reset({
+        amount: "",
+        currency: companyData?.currency || "USD",
+        description: "",
+        date: new Date(),
+      });
     } finally {
       setIsSubmitting(false);
     }
